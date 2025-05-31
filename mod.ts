@@ -1,3 +1,6 @@
+// Load compatibility layers first to ensure polyfills are available
+import "./src/utils/compatibility/abort-signal.ts";
+
 // Base interfaces
 export * from "./src/base.ts";
 export * from "./src/transports/base.ts";

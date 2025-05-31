@@ -1,4 +1,4 @@
-import { TypedEventTarget } from "@derzade/typescript-event-target";
+import { TypedEventTarget, CustomEvent } from "../../utils/compatibility/custom-event-target.ts";
 import type { BlockDetails, TxDetails } from "../../types/explorer/responses.ts";
 import type { BaseExchangeResponse } from "../../types/exchange/responses.ts";
 

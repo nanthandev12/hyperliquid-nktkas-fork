@@ -60,7 +60,7 @@ export interface WebSocketTransportOptions {
 }
 
 /** WebSocket implementation of the REST and Subscription transport interfaces. */
-export class WebSocketTransport implements IRequestTransport, ISubscriptionTransport, AsyncDisposable {
+export class WebSocketTransport implements IRequestTransport, ISubscriptionTransport {
     protected _wsRequester: WebSocketAsyncRequest;
     protected _hlEvents: HyperliquidEventTarget;
     protected _keepAliveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -340,7 +340,6 @@ export class WebSocketTransport implements IRequestTransport, ISubscriptionTrans
         }
     }
 
-    async [Symbol.asyncDispose](): Promise<void> {
-        await this.close();
-    }
+    // Removed Symbol.asyncDispose for React Native compatibility
+    // Use the close() method directly instead
 }
