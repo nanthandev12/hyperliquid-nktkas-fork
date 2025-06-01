@@ -1,3 +1,5 @@
+// Import polyfill for Symbol.asyncDispose
+import "../../utils/compatibility/symbol-polyfills.ts";
 import {
     type MessageBufferStrategy,
     ReconnectingWebSocket,
@@ -7,6 +9,7 @@ import {
 import { HyperliquidEventTarget } from "./_hyperliquid_event_target.ts";
 import { WebSocketAsyncRequest, WebSocketRequestError } from "./_websocket_async_request.ts";
 import type { IRequestTransport, ISubscriptionTransport, Subscription } from "../base.ts";
+
 
 export { WebSocketRequestError };
 export { type MessageBufferStrategy, ReconnectingWebSocketError, type ReconnectingWebSocketOptions };
@@ -60,7 +63,7 @@ export interface WebSocketTransportOptions {
 }
 
 /** WebSocket implementation of the REST and Subscription transport interfaces. */
-export class WebSocketTransport implements IRequestTransport, ISubscriptionTransport {
+export class WebSocketTransport implements IRequestTransport, ISubscriptionTransport, AsyncDisposable {
     protected _wsRequester: WebSocketAsyncRequest;
     protected _hlEvents: HyperliquidEventTarget;
     protected _keepAliveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -340,6 +343,8 @@ export class WebSocketTransport implements IRequestTransport, ISubscriptionTrans
         }
     }
 
-    // Removed Symbol.asyncDispose for React Native compatibility
-    // Use the close() method directly instead
+    // Using Symbol.asyncDispose with polyfill for React Native compatibility
+    async [Symbol.asyncDispose](): Promise<void> {
+        await this.close();
+    }
 }
