@@ -1,6 +1,5 @@
 // Load compatibility layers first to ensure polyfills are available
 import "./src/utils/compatibility/abort-signal.ts";
-
 // Base interfaces
 export * from "./src/base.ts";
 export * from "./src/transports/base.ts";
@@ -9,15 +8,15 @@ export * from "./src/transports/base.ts";
 export type {
     AbstractEthersSigner,
     AbstractEthersV5Signer,
-    AbstractExtendedViemWalletClient,
     AbstractViemWalletClient,
     AbstractWindowEthereum,
 } from "./src/signing.ts";
 
 // Clients
-export * from "./src/clients/subscription.ts";
-export * from "./src/clients/info.ts";
 export * from "./src/clients/exchange.ts";
+export * from "./src/clients/info.ts";
+export * from "./src/clients/multiSign.ts";
+export * from "./src/clients/subscription.ts";
 
 // Transports
 export * from "./src/transports/http/http_transport.ts";

@@ -1,6 +1,12 @@
 import type { IRequestTransport } from "../transports/base.ts";
 import type { BlockDetailsRequest, TxDetailsRequest, UserDetailsRequest } from "../types/explorer/requests.ts";
-import type { BlockDetailsResponse, TxDetailsResponse, UserDetailsResponse } from "../types/explorer/responses.ts";
+import type {
+    BlockDetails,
+    BlockDetailsResponse,
+    TxDetails,
+    TxDetailsResponse,
+    UserDetailsResponse,
+} from "../types/explorer/responses.ts";
 import type {
     ExtraAgent,
     LegalCheck,
@@ -239,7 +245,7 @@ export type UserDetailsParameters = Omit<UserDetailsRequest, "type">;
  */
 export class InfoClient<
     T extends IRequestTransport = IRequestTransport,
-> implements InfoClientParameters, AsyncDisposable {
+> implements InfoClientParameters<T>, AsyncDisposable {
     transport: T;
 
     /**
@@ -271,7 +277,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const allMids = await client.allMids();
+     * const data = await infoClient.allMids();
      * ```
      */
     allMids(args?: AllMidsParameters, signal?: AbortSignal): Promise<AllMids>;
@@ -301,15 +307,16 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const { blockDetails } = await client.blockDetails({ height: 123 });
+     * const data = await infoClient.blockDetails({ height: 123 });
      * ```
      */
-    blockDetails(args: BlockDetailsParameters, signal?: AbortSignal): Promise<BlockDetailsResponse> {
+    async blockDetails(args: BlockDetailsParameters, signal?: AbortSignal): Promise<BlockDetails> {
         const request: BlockDetailsRequest = {
             type: "blockDetails",
             ...args,
         };
-        return this.transport.request("explorer", request, signal);
+        const { blockDetails } = await this.transport.request<BlockDetailsResponse>("explorer", request, signal);
+        return blockDetails;
     }
 
     /**
@@ -326,7 +333,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const candleSnapshot = await client.candleSnapshot({
+     * const data = await infoClient.candleSnapshot({
      *   coin: "ETH",
      *   interval: "1h",
      *   startTime: Date.now() - 1000 * 60 * 60 * 24
@@ -355,7 +362,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const clearinghouseState = await client.clearinghouseState({ user: "0x..." });
+     * const data = await infoClient.clearinghouseState({ user: "0x..." });
      * ```
      */
     clearinghouseState(args: ClearinghouseStateParameters, signal?: AbortSignal): Promise<PerpsClearinghouseState> {
@@ -380,7 +387,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const delegations = await client.delegations({ user: "0x..." });
+     * const data = await infoClient.delegations({ user: "0x..." });
      * ```
      */
     delegations(args: DelegationsParameters, signal?: AbortSignal): Promise<Delegation[]> {
@@ -405,7 +412,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const delegatorHistory = await client.delegatorHistory({ user: "0x..." });
+     * const data = await infoClient.delegatorHistory({ user: "0x..." });
      * ```
      */
     delegatorHistory(args: DelegatorHistoryParameters, signal?: AbortSignal): Promise<DelegatorUpdate[]> {
@@ -430,7 +437,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const delegatorRewards = await client.delegatorRewards({ user: "0x..." });
+     * const data = await infoClient.delegatorRewards({ user: "0x..." });
      * ```
      */
     delegatorRewards(args: DelegatorRewardsParameters, signal?: AbortSignal): Promise<DelegatorReward[]> {
@@ -455,7 +462,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const delegatorSummary = await client.delegatorSummary({ user: "0x..." });
+     * const data = await infoClient.delegatorSummary({ user: "0x..." });
      * ```
      */
     delegatorSummary(args: DelegatorSummaryParameters, signal?: AbortSignal): Promise<DelegatorSummary> {
@@ -480,7 +487,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const extraAgents = await client.extraAgents({ user: "0x..." });
+     * const data = await infoClient.extraAgents({ user: "0x..." });
      * ```
      */
     extraAgents(args: ExtraAgentsParameters, signal?: AbortSignal): Promise<ExtraAgent[]> {
@@ -505,7 +512,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const frontendOpenOrders = await client.frontendOpenOrders({ user: "0x..." });
+     * const data = await infoClient.frontendOpenOrders({ user: "0x..." });
      * ```
      */
     frontendOpenOrders(args: FrontendOpenOrdersParameters, signal?: AbortSignal): Promise<FrontendOrder[]> {
@@ -530,7 +537,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const fundingHistory = await client.fundingHistory({
+     * const data = await infoClient.fundingHistory({
      *   coin: "ETH",
      *   startTime: Date.now() - 1000 * 60 * 60 * 24
      * });
@@ -558,7 +565,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const historicalOrders = await client.historicalOrders({ user: "0x..." });
+     * const data = await infoClient.historicalOrders({ user: "0x..." });
      * ```
      */
     historicalOrders(args: HistoricalOrdersParameters, signal?: AbortSignal): Promise<OrderStatus<FrontendOrder>[]> {
@@ -583,7 +590,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const isVip = await client.isVip({ user: "0x..." });
+     * const data = await infoClient.isVip({ user: "0x..." });
      * ```
      */
     isVip(args: IsVipParameters, signal?: AbortSignal): Promise<boolean> {
@@ -608,7 +615,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const l2Book = await client.l2Book({ coin: "ETH", nSigFigs: 2 });
+     * const data = await infoClient.l2Book({ coin: "ETH", nSigFigs: 2 });
      * ```
      */
     l2Book(args: L2BookParameters, signal?: AbortSignal): Promise<Book> {
@@ -633,7 +640,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const legalCheck = await client.legalCheck({ user: "0x..." });
+     * const data = await infoClient.legalCheck({ user: "0x..." });
      * ```
      */
     legalCheck(args: LegalCheckParameters, signal?: AbortSignal): Promise<LegalCheck> {
@@ -658,7 +665,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const maxBuilderFee = await client.maxBuilderFee({ user: "0x...", builder: "0x..." });
+     * const data = await infoClient.maxBuilderFee({ user: "0x...", builder: "0x..." });
      * ```
      */
     maxBuilderFee(args: MaxBuilderFeeParameters, signal?: AbortSignal): Promise<number> {
@@ -682,7 +689,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const meta = await client.meta();
+     * const data = await infoClient.meta();
      * ```
      */
     meta(args?: MetaParameters, signal?: AbortSignal): Promise<PerpsMeta>;
@@ -711,7 +718,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const [meta, assetCtxs] = await client.metaAndAssetCtxs();
+     * const data = await infoClient.metaAndAssetCtxs();
      * ```
      */
     metaAndAssetCtxs(signal?: AbortSignal): Promise<PerpsMetaAndAssetCtxs> {
@@ -735,7 +742,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const openOrders = await client.openOrders({ user: "0x..." });
+     * const data = await infoClient.openOrders({ user: "0x..." });
      * ```
      */
     openOrders(args: OpenOrdersParameters, signal?: AbortSignal): Promise<Order[]> {
@@ -760,7 +767,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const orderStatus = await client.orderStatus({ user: "0x...", oid: 12345 });
+     * const data = await infoClient.orderStatus({ user: "0x...", oid: 12345 });
      * ```
      */
     orderStatus(args: OrderStatusParameters, signal?: AbortSignal): Promise<OrderLookup> {
@@ -784,7 +791,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const auctionStatus = await client.perpDeployAuctionStatus();
+     * const data = await infoClient.perpDeployAuctionStatus();
      * ```
      */
     perpDeployAuctionStatus(signal?: AbortSignal): Promise<DeployAuctionStatus> {
@@ -807,7 +814,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const perpDexs = await client.perpDexs();
+     * const data = await infoClient.perpDexs();
      * ```
      */
     perpDexs(signal?: AbortSignal): Promise<(PerpDex | null)[]> {
@@ -831,7 +838,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const perpsAtOpenInterestCap = await client.perpsAtOpenInterestCap();
+     * const data = await infoClient.perpsAtOpenInterestCap();
      * ```
      */
     perpsAtOpenInterestCap(signal?: AbortSignal): Promise<string[]> {
@@ -855,7 +862,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const portfolio = await client.portfolio({ user: "0x..." });
+     * const data = await infoClient.portfolio({ user: "0x..." });
      * ```
      */
     portfolio(args: PortfolioParameters, signal?: AbortSignal): Promise<PortfolioPeriods> {
@@ -879,7 +886,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const predictedFundings = await client.predictedFundings();
+     * const data = await infoClient.predictedFundings();
      * ```
      */
     predictedFundings(signal?: AbortSignal): Promise<PredictedFunding[]> {
@@ -903,7 +910,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const preTransferCheck = await client.preTransferCheck({ user: "0x...", source: "0x..." });
+     * const data = await infoClient.preTransferCheck({ user: "0x...", source: "0x..." });
      * ```
      */
     preTransferCheck(args: PreTransferCheckParameters, signal?: AbortSignal): Promise<PreTransferCheck> {
@@ -928,7 +935,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const referral = await client.referral({ user: "0x..." });
+     * const data = await infoClient.referral({ user: "0x..." });
      * ```
      */
     referral(args: ReferralParameters, signal?: AbortSignal): Promise<Referral> {
@@ -953,7 +960,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const spotClearinghouseState = await client.spotClearinghouseState({ user: "0x..." });
+     * const data = await infoClient.spotClearinghouseState({ user: "0x..." });
      * ```
      */
     spotClearinghouseState(
@@ -981,7 +988,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const spotDeployState = await client.spotDeployState({ user: "0x..." });
+     * const data = await infoClient.spotDeployState({ user: "0x..." });
      * ```
      */
     spotDeployState(args: SpotDeployStateParameters, signal?: AbortSignal): Promise<SpotDeployState> {
@@ -1005,7 +1012,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const spotMeta = await client.spotMeta();
+     * const data = await infoClient.spotMeta();
      * ```
      */
     spotMeta(signal?: AbortSignal): Promise<SpotMeta> {
@@ -1028,7 +1035,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const [spotMeta, spotAssetCtxs] = await client.spotMetaAndAssetCtxs();
+     * const data = await infoClient.spotMetaAndAssetCtxs();
      * ```
      */
     spotMetaAndAssetCtxs(signal?: AbortSignal): Promise<SpotMetaAndAssetCtxs> {
@@ -1052,7 +1059,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const subAccounts = await client.subAccounts({ user: "0x..." });
+     * const data = await infoClient.subAccounts({ user: "0x..." });
      * ```
      */
     subAccounts(args: SubAccountsParameters, signal?: AbortSignal): Promise<SubAccount[] | null> {
@@ -1077,7 +1084,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const tokenDetails = await client.tokenDetails({ tokenId: "0x..." });
+     * const data = await infoClient.tokenDetails({ tokenId: "0x..." });
      * ```
      */
     tokenDetails(args: TokenDetailsParameters, signal?: AbortSignal): Promise<TokenDetails> {
@@ -1102,7 +1109,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const twapHistory = await client.twapHistory({ user: "0x..." });
+     * const data = await infoClient.twapHistory({ user: "0x..." });
      * ```
      */
     twapHistory(args: TwapHistoryParameters, signal?: AbortSignal): Promise<TwapHistory[]> {
@@ -1127,15 +1134,16 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const { tx } = await client.txDetails({ hash: "0x..." });
+     * const data = await infoClient.txDetails({ hash: "0x..." });
      * ```
      */
-    txDetails(args: TxDetailsParameters, signal?: AbortSignal): Promise<TxDetailsResponse> {
+    async txDetails(args: TxDetailsParameters, signal?: AbortSignal): Promise<TxDetails> {
         const request: TxDetailsRequest = {
             type: "txDetails",
             ...args,
         };
-        return this.transport.request("explorer", request, signal);
+        const { tx } = await this.transport.request<TxDetailsResponse>("explorer", request, signal);
+        return tx;
     }
 
     /**
@@ -1152,15 +1160,16 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const { txs } = await client.userDetails({ user: "0x..." });
+     * const data = await infoClient.userDetails({ user: "0x..." });
      * ```
      */
-    userDetails(args: UserDetailsParameters, signal?: AbortSignal): Promise<UserDetailsResponse> {
+    async userDetails(args: UserDetailsParameters, signal?: AbortSignal): Promise<TxDetails[]> {
         const request: UserDetailsRequest = {
             type: "userDetails",
             ...args,
         };
-        return this.transport.request("explorer", request, signal);
+        const { txs } = await this.transport.request<UserDetailsResponse>("explorer", request, signal);
+        return txs;
     }
 
     /**
@@ -1177,7 +1186,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const fees = await client.userFees({ user: "0x..." });
+     * const data = await infoClient.userFees({ user: "0x..." });
      * ```
      */
     userFees(args: UserFeesParameters, signal?: AbortSignal): Promise<UserFees> {
@@ -1202,7 +1211,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const fills = await client.userFills({ user: "0x..." });
+     * const data = await infoClient.userFills({ user: "0x..." });
      * ```
      */
     userFills(args: UserFillsParameters, signal?: AbortSignal): Promise<Fill[]> {
@@ -1227,7 +1236,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const fills = await client.userFillsByTime({
+     * const data = await infoClient.userFillsByTime({
      *   user: "0x...",
      *   startTime: Date.now() - 1000 * 60 * 60 * 24
      * });
@@ -1255,7 +1264,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const funding = await client.userFunding({
+     * const data = await infoClient.userFunding({
      *   user: "0x...",
      *   startTime: Date.now() - 1000 * 60 * 60 * 24
      * });
@@ -1283,7 +1292,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const nonFundingLedgerUpdates = await client.userNonFundingLedgerUpdates({
+     * const data = await infoClient.userNonFundingLedgerUpdates({
      *   user: "0x...",
      *   startTime: Date.now() - 1000 * 60 * 60 * 24
      * });
@@ -1314,7 +1323,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const rateLimit = await client.userRateLimit({ user: "0x..." });
+     * const data = await infoClient.userRateLimit({ user: "0x..." });
      * ```
      */
     userRateLimit(args: UserRateLimitParameters, signal?: AbortSignal): Promise<UserRateLimit> {
@@ -1339,7 +1348,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const userRole = await client.userRole({ user: "0x..." });
+     * const data = await infoClient.userRole({ user: "0x..." });
      * ```
      */
     userRole(args: UserRoleParameters, signal?: AbortSignal): Promise<UserRole> {
@@ -1364,7 +1373,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const multiSigSigners = await client.userToMultiSigSigners({ user: "0x..." });
+     * const data = await infoClient.userToMultiSigSigners({ user: "0x..." });
      * ```
      */
     userToMultiSigSigners(
@@ -1392,7 +1401,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const twapSliceFills = await client.userTwapSliceFills({ user: "0x..." });
+     * const data = await infoClient.userTwapSliceFills({ user: "0x..." });
      * ```
      */
     userTwapSliceFills(args: UserTwapSliceFillsParameters, signal?: AbortSignal): Promise<TwapSliceFill[]> {
@@ -1417,7 +1426,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const twapSliceFillsByTime = await client.userTwapSliceFillsByTime({
+     * const data = await infoClient.userTwapSliceFillsByTime({
      *   user: "0x...",
      *   startTime: Date.now() - 1000 * 60 * 60 * 24
      * });
@@ -1445,7 +1454,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const userVaultEquities = await client.userVaultDeposits({ user: "0x..." });
+     * const data = await infoClient.userVaultDeposits({ user: "0x..." });
      * ```
      */
     userVaultEquities(args: UserVaultEquitiesParameters, signal?: AbortSignal): Promise<VaultEquity[]> {
@@ -1469,7 +1478,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const validatorSummaries = await client.validatorSummaries();
+     * const data = await infoClient.validatorSummaries();
      * ```
      */
     validatorSummaries(signal?: AbortSignal): Promise<ValidatorSummary[]> {
@@ -1493,7 +1502,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const vaultDetails = await client.vaultDetails({ vaultAddress: "0x..." });
+     * const data = await infoClient.vaultDetails({ vaultAddress: "0x..." });
      * ```
      */
     vaultDetails(args: VaultDetailsParameters, signal?: AbortSignal): Promise<VaultDetails | null> {
@@ -1518,7 +1527,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const vaultSummaries = await client.vaultSummaries();
+     * const data = await infoClient.vaultSummaries();
      * ```
      */
     vaultSummaries(signal?: AbortSignal): Promise<VaultSummary[]> {

@@ -5,14 +5,14 @@ import { ApiRequestError, ExchangeClient, type Hex, HttpTransport } from "../../
 
 // —————————— Arguments ——————————
 
-const args = parseArgs(Deno.args, { string: ["privateKey"] }) as Args<{ wait?: number; privateKey: Hex }>;
+const args = parseArgs(Deno.args, { default: { wait: 1500 }, string: ["_"] }) as Args<{ wait: number }>;
 
-const PRIVATE_KEY = args.privateKey;
+const PRIVATE_KEY = args._[0] as Hex;
 
 // —————————— Test ——————————
 
-Deno.test("_validateResponse", async (t) => {
-    if (args.wait) await new Promise((r) => setTimeout(r, args.wait));
+Deno.test("_validateResponse", { ignore: !PRIVATE_KEY }, async (t) => {
+    await new Promise((r) => setTimeout(r, args.wait));
 
     // —————————— Prepare ——————————
 
@@ -26,7 +26,7 @@ Deno.test("_validateResponse", async (t) => {
         await assertRejects(
             () => exchClient.cancel({ cancels: [{ a: 0, o: 0 }] }),
             ApiRequestError,
-            "Cannot process API request: Order 0 failed: Order was never placed, already canceled, or filled.",
+            "Order 0: Order was never placed, already canceled, or filled. asset=0",
         );
     });
 
@@ -34,7 +34,7 @@ Deno.test("_validateResponse", async (t) => {
         await assertRejects(
             () => exchClient.scheduleCancel({ time: 1 }),
             ApiRequestError,
-            "Cannot process API request: Scheduled cancel time too early, must be at least 5 seconds from now.",
+            "Scheduled cancel time too early, must be at least 5 seconds from now.",
         );
     });
 
@@ -46,7 +46,7 @@ Deno.test("_validateResponse", async (t) => {
                     grouping: "na",
                 }),
             ApiRequestError,
-            "Cannot process API request: Order 0 failed: Order has zero size.",
+            "Order 0: Order has zero size.",
         );
     });
 
@@ -54,7 +54,7 @@ Deno.test("_validateResponse", async (t) => {
         await assertRejects(
             () => exchClient.twapOrder({ a: 0, b: true, s: "0", r: false, m: 5, t: false }),
             ApiRequestError,
-            "Cannot process API request: Order has zero size.",
+            "Order has zero size.",
         );
     });
 
@@ -62,7 +62,7 @@ Deno.test("_validateResponse", async (t) => {
         await assertRejects(
             () => exchClient.twapOrder({ a: 0, b: true, s: "0", r: false, m: 5, t: false }),
             ApiRequestError,
-            "Cannot process API request: Order has zero size.",
+            "Order has zero size.",
         );
     });
 });

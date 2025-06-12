@@ -65,15 +65,15 @@ import type {
 } from "../types/exchange/responses.ts";
 import {
     type AbstractWallet,
+    actionSorter,
     isAbstractEthersSigner,
     isAbstractEthersV5Signer,
-    isAbstractExtendedViemWalletClient,
     isAbstractViemWalletClient,
     isAbstractWindowEthereum,
     signL1Action,
     signMultiSigAction,
     signUserSignedAction,
-    type ValueMap,
+    userSignedActionEip712Types,
 } from "../signing.ts";
 
 /** Parameters for the {@linkcode ExchangeClient} constructor. */
@@ -441,32 +441,31 @@ export class ApiRequestError extends HyperliquidError {
             | TwapOrderResponse
             | TwapCancelResponse,
     ) {
-        let message = "Cannot process API request";
-
+        let message;
         if (response.status === "err") {
-            // For ErrorResponse
-            message += `: ${response.response}`;
+            // ErrorResponse
+            message = response.response;
         } else {
             if ("statuses" in response.response.data) {
-                // For OrderResponse, CancelResponse
+                // OrderResponse | CancelResponse
                 const errors = response.response.data.statuses.reduce<string[]>((acc, status, index) => {
                     if (typeof status === "object" && "error" in status) {
-                        acc.push(`Order ${index} failed: ${status.error}`);
+                        acc.push(`Order ${index}: ${status.error}`);
                     }
                     return acc;
                 }, []);
                 if (errors.length > 0) {
-                    message += `: ${errors.join(", ")}`;
+                    message = errors.join(", ");
                 }
             } else {
-                // For TwapOrderResponse, TwapCancelResponse
+                // TwapOrderResponse | TwapCancelResponse
                 if (typeof response.response.data.status === "object" && "error" in response.response.data.status) {
-                    message += `: ${response.response.data.status.error}`;
+                    message = response.response.data.status.error;
                 }
             }
         }
 
-        super(message);
+        super(message || "An unknown error occurred while processing an API request. See `response` for more details.");
         this.name = "ApiRequestError";
     }
 }
@@ -494,12 +493,12 @@ class NonceManager {
 /**
  * Exchange client for interacting with the Hyperliquid API.
  * @typeParam T The transport used to connect to the Hyperliquid API.
- * @typeParam W The WalletClient/Account ([viem](https://viem.sh/docs/clients/wallet)) or Signer ([ethers.js](https://docs.ethers.io/v6/api/providers/#Signer)) used for signing transactions.
+ * @typeParam W The wallet used for signing transactions.
  */
 export class ExchangeClient<
     T extends IRequestTransport = IRequestTransport,
     W extends AbstractWallet = AbstractWallet,
-> implements ExchangeClientParameters, AsyncDisposable {
+> implements ExchangeClientParameters<T, W>, AsyncDisposable {
     transport: T;
     wallet: W;
     isTestnet: boolean;
@@ -581,41 +580,38 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.approveAgent({ agentAddress: "0x...", agentName: "agentName" });
+     * const data = await exchClient.approveAgent({ agentAddress: "0x...", agentName: "agentName" });
      * ```
      */
     async approveAgent(args: ApproveAgentParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: ApproveAgentRequest["action"] = {
-            ...args,
+            ...actionArgs,
             agentName: args.agentName ?? "",
             type: "approveAgent",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            nonce: await this.nonceManager(),
+            nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:ApproveAgent": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "agentAddress", type: "address" },
-                    { name: "agentName", type: "string" },
-                    { name: "nonce", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
-        if (action.agentName === "") delete action.agentName;
+        if (action.agentName === "") action.agentName = null;
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.nonce } satisfies ApproveAgentRequest,
+            { action, signature, nonce } satisfies ApproveAgentRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -635,39 +631,36 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.approveBuilderFee({ maxFeeRate: "0.01%", builder: "0x..." });
+     * const data = await exchClient.approveBuilderFee({ maxFeeRate: "0.01%", builder: "0x..." });
      * ```
      */
     async approveBuilderFee(args: ApproveBuilderFeeParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: ApproveBuilderFeeRequest["action"] = {
-            ...args,
+            ...actionArgs,
             type: "approveBuilderFee",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            nonce: await this.nonceManager(),
+            nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:ApproveBuilderFee": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "maxFeeRate", type: "string" },
-                    { name: "builder", type: "address" },
-                    { name: "nonce", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.nonce } satisfies ApproveBuilderFeeRequest,
+            { action, signature, nonce } satisfies ApproveBuilderFeeRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -687,7 +680,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.batchModify({
+     * const data = await exchClient.batchModify({
      *   modifies: [{
      *     oid: 123,
      *     order: {
@@ -701,7 +694,7 @@ export class ExchangeClient<
      *           tif: "Gtc", // Good-til-cancelled
      *         },
      *       },
-     *       c: "0x...", // Optional: Client Order ID
+     *       c: "0x...", // Client Order ID (optional)
      *     },
      *   }],
      * });
@@ -719,40 +712,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: BatchModifyRequest["action"] = {
             type: "batchModify",
-            modifies: actionArgs.modifies.map((modify) => {
-                const sortedModify = {
-                    oid: modify.oid,
-                    order: {
-                        a: modify.order.a,
-                        b: modify.order.b,
-                        p: this._formatDecimal(modify.order.p),
-                        s: this._formatDecimal(modify.order.s),
-                        r: modify.order.r,
-                        t: "limit" in modify.order.t
-                            ? {
-                                limit: {
-                                    tif: modify.order.t.limit.tif,
-                                },
-                            }
-                            : {
-                                trigger: {
-                                    isMarket: modify.order.t.trigger.isMarket,
-                                    triggerPx: this._formatDecimal(modify.order.t.trigger.triggerPx),
-                                    tpsl: modify.order.t.trigger.tpsl,
-                                },
-                            },
-                        c: modify.order.c,
-                    },
-                };
-                if (sortedModify.order.c === undefined) delete sortedModify.order.c;
-                return sortedModify;
-            }),
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -763,7 +729,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies BatchModifyRequest,
             signal,
-        ) as OrderResponseSuccess;
+        );
     }
 
     /**
@@ -783,7 +749,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.cancel({
+     * const data = await exchClient.cancel({
      *   cancels: [{
      *     a: 0, // Asset index
      *     o: 123, // Order ID
@@ -803,16 +769,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: CancelRequest["action"] = {
             type: "cancel",
-            cancels: actionArgs.cancels.map((cancel) => ({
-                a: cancel.a,
-                o: cancel.o,
-            })),
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -823,7 +786,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies CancelRequest,
             signal,
-        ) as CancelResponseSuccess;
+        );
     }
 
     /**
@@ -843,7 +806,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.cancelByCloid({
+     * const data = await exchClient.cancelByCloid({
      *   cancels: [
      *     { asset: 0, cloid: "0x..." },
      *   ],
@@ -862,16 +825,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: CancelByCloidRequest["action"] = {
             type: "cancelByCloid",
-            cancels: actionArgs.cancels.map((cancel) => ({
-                asset: cancel.asset,
-                cloid: cancel.cloid,
-            })),
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -882,7 +842,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies CancelByCloidRequest,
             signal,
-        ) as CancelResponseSuccess;
+        );
     }
 
     /**
@@ -902,38 +862,36 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.cDeposit({ wei: 1 * 1e8 });
+     * const data = await exchClient.cDeposit({ wei: 1 * 1e8 });
      * ```
      */
     async cDeposit(args: CDepositParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: CDepositRequest["action"] = {
-            ...args,
+            ...actionArgs,
             type: "cDeposit",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            nonce: await this.nonceManager(),
+            nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:CDeposit": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "wei", type: "uint64" },
-                    { name: "nonce", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.nonce } satisfies CDepositRequest,
+            { action, signature, nonce } satisfies CDepositRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -953,18 +911,20 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.claimRewards();
+     * const data = await exchClient.claimRewards();
      * ```
      */
     async claimRewards(signal?: AbortSignal): Promise<SuccessResponse> {
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: ClaimRewardsRequest["action"] = { type: "claimRewards" };
+        const action: ClaimRewardsRequest["action"] = {
+            type: "claimRewards",
+        };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -973,11 +933,11 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies ClaimRewardsRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
-     * Convert a single-signature account to a multi-signature account.
+     * Convert a single-signature account to a multi-signature account or vice versa.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
@@ -993,41 +953,39 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.convertToMultiSigUser({
-     *   authorizedUsers: ["0x...", "0x..."],
+     * const data = await exchClient.convertToMultiSigUser({ // convert to multi-sig user
+     *   authorizedUsers: ["0x...", "0x...", "0x..."],
      *   threshold: 2,
      * });
      * ```
      */
     async convertToMultiSigUser(args: ConvertToMultiSigUserParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: ConvertToMultiSigUserRequest["action"] = {
             type: "convertToMultiSigUser",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            signers: JSON.stringify(args),
-            nonce: await this.nonceManager(),
+            signers: JSON.stringify(actionArgs),
+            nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:ConvertToMultiSigUser": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "signers", type: "string" },
-                    { name: "nonce", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.nonce } satisfies ConvertToMultiSigUserRequest,
+            { action, signature, nonce } satisfies ConvertToMultiSigUserRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1047,21 +1005,24 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.createSubAccount({ name: "subAccountName" });
+     * const data = await exchClient.createSubAccount({ name: "subAccountName" });
      * ```
      */
     async createSubAccount(args: CreateSubAccountParameters, signal?: AbortSignal): Promise<CreateSubAccountResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: CreateSubAccountRequest["action"] = {
             type: "createSubAccount",
-            name: args.name,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -1070,7 +1031,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies CreateSubAccountRequest,
             signal,
-        ) as CreateSubAccountResponse;
+        );
     }
 
     /**
@@ -1090,28 +1051,29 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.createVault({
+     * const data = await exchClient.createVault({
      *   name: "VaultName",
-     *   description: "This is an example of a vault description",
+     *   description: "Vault description",
      *   initialUsd: 100 * 1e6,
      * });
      * ```
      */
     async createVault(args: CreateVaultParameters, signal?: AbortSignal): Promise<CreateVaultResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: CreateVaultRequest["action"] = {
             type: "createVault",
-            name: args.name,
-            description: args.description,
-            initialUsd: args.initialUsd,
             nonce,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -1120,7 +1082,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies CreateVaultRequest,
             signal,
-        ) as CreateVaultResponse;
+        );
     }
 
     /**
@@ -1141,10 +1103,10 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
      * // Jail self
-     * const result = await client.cSignerAction({ jailSelf: null });
+     * const data = await exchClient.cSignerAction({ jailSelf: null });
      *
      * // Unjail self
-     * const result = await client.cSignerAction({ unjailSelf: null });
+     * const data = await exchClient.cSignerAction({ unjailSelf: null });
      * ```
      */
     async cSignerAction(args: CSignerActionParameters_JailSelf, signal?: AbortSignal): Promise<SuccessResponse>;
@@ -1166,7 +1128,7 @@ export class ExchangeClient<
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             expiresAfter,
@@ -1174,11 +1136,9 @@ export class ExchangeClient<
 
         // Send a request
         return await this._request(
-            { action, signature, nonce, expiresAfter } as
-                | CSignerActionRequest_JailSelf
-                | CSignerActionRequest_UnjailSelf,
+            { action, signature, nonce, expiresAfter },
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1198,10 +1158,10 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
      * // Change validator profile
-     * const result = await client.cValidatorAction({
+     * const data = await exchClient.cValidatorAction({
      *   changeProfile: {
      *     name: "My Validator",
-     *     description: "My validator description",
+     *     description: "Validator description",
      *     unjailed: true,
      *   }
      * });
@@ -1231,50 +1191,18 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        let action:
+        const action:
             | CValidatorActionRequest_ChangeProfile["action"]
             | CValidatorActionRequest_Register["action"]
-            | CValidatorActionRequest_Unregister["action"];
-        if ("changeProfile" in actionArgs) {
-            action = {
+            | CValidatorActionRequest_Unregister["action"] = {
                 type: "CValidatorAction",
-                changeProfile: {
-                    node_ip: actionArgs.changeProfile.node_ip ?? null,
-                    name: actionArgs.changeProfile.name ?? null,
-                    description: actionArgs.changeProfile.description ?? null,
-                    unjailed: actionArgs.changeProfile.unjailed,
-                    disable_delegations: actionArgs.changeProfile.disable_delegations ?? null,
-                    commission_bps: actionArgs.changeProfile.commission_bps ?? null,
-                    signer: actionArgs.changeProfile.signer?.toLowerCase() as Hex ?? null,
-                },
+                ...actionArgs,
             };
-        } else if ("register" in actionArgs) {
-            action = {
-                type: "CValidatorAction",
-                register: {
-                    profile: {
-                        node_ip: { Ip: actionArgs.register.profile.node_ip.Ip },
-                        name: actionArgs.register.profile.name,
-                        description: actionArgs.register.profile.description,
-                        delegations_disabled: actionArgs.register.profile.delegations_disabled,
-                        commission_bps: actionArgs.register.profile.commission_bps,
-                        signer: actionArgs.register.profile.signer?.toLowerCase() as Hex,
-                    },
-                    unjailed: actionArgs.register.unjailed,
-                    initial_wei: actionArgs.register.initial_wei,
-                },
-            };
-        } else {
-            action = {
-                type: "CValidatorAction",
-                unregister: actionArgs.unregister,
-            };
-        }
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             expiresAfter,
@@ -1282,12 +1210,9 @@ export class ExchangeClient<
 
         // Send a request
         return await this._request(
-            { action, signature, nonce, expiresAfter } as
-                | CValidatorActionRequest_ChangeProfile
-                | CValidatorActionRequest_Register
-                | CValidatorActionRequest_Unregister,
+            { action, signature, nonce, expiresAfter },
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1307,38 +1232,36 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.cWithdraw({ wei: 1 * 1e8 });
+     * const data = await exchClient.cWithdraw({ wei: 1 * 1e8 });
      * ```
      */
     async cWithdraw(args: CWithdrawParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: CWithdrawRequest["action"] = {
-            ...args,
+            ...actionArgs,
             type: "cWithdraw",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            nonce: await this.nonceManager(),
+            nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:CWithdraw": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "wei", type: "uint64" },
-                    { name: "nonce", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.nonce } satisfies CWithdrawRequest,
+            { action, signature, nonce } satisfies CWithdrawRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1358,21 +1281,24 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.evmUserModify({ usingBigBlocks: true });
+     * const data = await exchClient.evmUserModify({ usingBigBlocks: true });
      * ```
      */
     async evmUserModify(args: EvmUserModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: EvmUserModifyRequest["action"] = {
             type: "evmUserModify",
-            usingBigBlocks: args.usingBigBlocks,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -1381,7 +1307,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies EvmUserModifyRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1401,7 +1327,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.modify({
+     * const data = await exchClient.modify({
      *   oid: 123,
      *   order: {
      *     a: 0, // Asset index
@@ -1414,7 +1340,7 @@ export class ExchangeClient<
      *         tif: "Gtc", // Good-til-cancelled
      *       },
      *     },
-     *     c: "0x...", // Optional: Client Order ID
+     *     c: "0x...", // Client Order ID (optional)
      *   },
      * });
      * ```
@@ -1431,35 +1357,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: ModifyRequest["action"] = {
             type: "modify",
-            oid: actionArgs.oid,
-            order: {
-                a: actionArgs.order.a,
-                b: actionArgs.order.b,
-                p: this._formatDecimal(actionArgs.order.p),
-                s: this._formatDecimal(actionArgs.order.s),
-                r: actionArgs.order.r,
-                t: "limit" in actionArgs.order.t
-                    ? {
-                        limit: {
-                            tif: actionArgs.order.t.limit.tif,
-                        },
-                    }
-                    : {
-                        trigger: {
-                            isMarket: actionArgs.order.t.trigger.isMarket,
-                            triggerPx: this._formatDecimal(actionArgs.order.t.trigger.triggerPx),
-                            tpsl: actionArgs.order.t.trigger.tpsl,
-                        },
-                    },
-                c: actionArgs.order.c,
-            },
+            ...actionArgs,
         };
-        if (action.order.c === undefined) delete action.order.c;
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -1470,7 +1374,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies ModifyRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1502,7 +1406,7 @@ export class ExchangeClient<
      *   isTestnet: true,
      * });
      *
-     * const result = await client.multiSig({
+     * const data = await exchClient.multiSig({
      *   signatures: [signature],
      *   payload: {
      *     multiSigUser,
@@ -1512,17 +1416,17 @@ export class ExchangeClient<
      *   nonce,
      * });
      * ```
-     * @unstable May not behave as expected and the interface may change in the future.
      */
-    async multiSig(args: MultiSigParameters, signal?: AbortSignal): Promise<
-        | SuccessResponse
-        | CancelResponseSuccess
-        | CreateSubAccountResponse
-        | CreateVaultResponse
-        | OrderResponseSuccess
-        | TwapOrderResponseSuccess
-        | TwapCancelResponseSuccess
-    > {
+    async multiSig<
+        T extends
+            | SuccessResponse
+            | CancelResponseSuccess
+            | CreateSubAccountResponse
+            | CreateVaultResponse
+            | OrderResponseSuccess
+            | TwapOrderResponseSuccess
+            | TwapCancelResponseSuccess,
+    >(args: MultiSigParameters, signal?: AbortSignal): Promise<T> {
         // Destructure the parameters
         const {
             vaultAddress = this.defaultVaultAddress,
@@ -1532,24 +1436,16 @@ export class ExchangeClient<
         } = args;
 
         // Construct an action
-        const hyperliquidChain = this._getHyperliquidChain();
         const action: MultiSigRequest["action"] = {
             type: "multiSig",
             signatureChainId: await this._getSignatureChainId(),
-            signatures: actionArgs.signatures.map((signature) => ({
-                r: signature.r.replace(/^0x0+/, "0x").toLowerCase() as Hex,
-                s: signature.s.replace(/^0x0+/, "0x").toLowerCase() as Hex,
-                v: signature.v,
-            })),
-            payload: {
-                multiSigUser: actionArgs.payload.multiSigUser.toLowerCase() as Hex,
-                outerSigner: actionArgs.payload.outerSigner.toLowerCase() as Hex,
-                action: actionArgs.payload.action,
-            },
+            ...actionArgs,
         };
 
         // Sign the action
-        const actionForMultiSig = structuredClone(action) as ValueMap;
+        const actionForMultiSig = actionSorter[action.type](action) as
+            & Omit<MultiSigRequest["action"], "type">
+            & { type?: string | undefined };
         delete actionForMultiSig.type;
 
         const signature = await signMultiSigAction({
@@ -1558,7 +1454,7 @@ export class ExchangeClient<
             nonce,
             vaultAddress,
             expiresAfter,
-            hyperliquidChain,
+            hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: action.signatureChainId,
         });
 
@@ -1586,7 +1482,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.order({
+     * const data = await exchClient.order({
      *   orders: [{
      *     a: 0, // Asset index
      *     b: true, // Buy order
@@ -1598,7 +1494,7 @@ export class ExchangeClient<
      *         tif: "Gtc", // Good-til-cancelled
      *       },
      *     },
-     *     c: "0x...", // Optional: Client Order ID
+     *     c: "0x...", // Client Order ID (optional)
      *   }],
      *   grouping: "na", // No grouping
      * });
@@ -1616,45 +1512,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: OrderRequest["action"] = {
             type: "order",
-            orders: actionArgs.orders.map((order) => {
-                const sortedOrder = {
-                    a: order.a,
-                    b: order.b,
-                    p: this._formatDecimal(order.p),
-                    s: this._formatDecimal(order.s),
-                    r: order.r,
-                    t: "limit" in order.t
-                        ? {
-                            limit: {
-                                tif: order.t.limit.tif,
-                            },
-                        }
-                        : {
-                            trigger: {
-                                isMarket: order.t.trigger.isMarket,
-                                triggerPx: this._formatDecimal(order.t.trigger.triggerPx),
-                                tpsl: order.t.trigger.tpsl,
-                            },
-                        },
-                    c: order.c,
-                };
-                if (order.c === undefined) delete sortedOrder.c;
-                return sortedOrder;
-            }),
-            grouping: actionArgs.grouping,
-            builder: actionArgs.builder
-                ? {
-                    b: actionArgs.builder.b.toLowerCase() as Hex,
-                    f: actionArgs.builder.f,
-                }
-                : actionArgs.builder,
+            ...actionArgs,
         };
-        if (action.builder === undefined) delete action.builder;
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -1665,7 +1529,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies OrderRequest,
             signal,
-        ) as OrderResponseSuccess;
+        );
     }
 
     /**
@@ -1676,64 +1540,56 @@ export class ExchangeClient<
      * @throws {ApiRequestError} When the API returns an error response.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/deploying-hip-3-assets
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     * import { privateKeyToAccount } from "viem/accounts";
+     *
+     * const wallet = privateKeyToAccount("0x...");
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const exchClient = new hl.ExchangeClient({ wallet, transport });
+     *
+     * const data = await exchClient.perpDeploy({
+     *   registerAsset: {
+     *     maxGas: 1000000,
+     *     assetRequest: {
+     *       coin: "USDC",
+     *       szDecimals: 8,
+     *       oraclePx: "1",
+     *       marginTableId: 1,
+     *       onlyIsolated: false,
+     *     },
+     *     dex: "test",
+     *   },
+     * });
+     * ```
      */
     async perpDeploy(args: PerpDeployParameters_RegisterAsset, signal?: AbortSignal): Promise<SuccessResponse>;
     async perpDeploy(args: PerpDeployParameters_SetOracle, signal?: AbortSignal): Promise<SuccessResponse>;
     async perpDeploy(args: PerpDeployParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
-        let action:
-            | PerpDeployRequest_RegisterAsset["action"]
-            | PerpDeployRequest_SetOracle["action"];
-        if ("registerAsset" in args) {
-            action = {
-                type: "perpDeploy",
-                registerAsset: {
-                    maxGas: args.registerAsset.maxGas ?? null,
-                    assetRequest: {
-                        coin: args.registerAsset.assetRequest.coin,
-                        szDecimals: args.registerAsset.assetRequest.szDecimals,
-                        oraclePx: args.registerAsset.assetRequest.oraclePx,
-                        marginTableId: args.registerAsset.assetRequest.marginTableId,
-                        onlyIsolated: args.registerAsset.assetRequest.onlyIsolated,
-                    },
-                    dex: args.registerAsset.dex,
-                    schema: args.registerAsset.schema
-                        ? {
-                            fullName: args.registerAsset.schema.fullName,
-                            collateralToken: args.registerAsset.schema.collateralToken,
-                            oracleUpdater: args.registerAsset.schema.oracleUpdater?.toLowerCase() as Hex ??
-                                null,
-                        }
-                        : null,
-                },
-            };
-        } else {
-            action = {
-                type: "perpDeploy",
-                setOracle: {
-                    dex: args.setOracle.dex,
-                    oraclePxs: args.setOracle.oraclePxs,
-                    markPxs: args.setOracle.markPxs,
-                },
-            };
-        }
+        const action: PerpDeployRequest_RegisterAsset["action"] | PerpDeployRequest_SetOracle["action"] = {
+            type: "perpDeploy",
+            ...actionArgs,
+        };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce } as
-                | PerpDeployRequest_RegisterAsset
-                | PerpDeployRequest_SetOracle,
+            { action, signature, nonce },
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1753,7 +1609,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.perpDexClassTransfer({
+     * const data = await exchClient.perpDexClassTransfer({
      *   dex: "test",
      *   token: "USDC",
      *   amount: "1",
@@ -1762,37 +1618,32 @@ export class ExchangeClient<
      * ```
      */
     async perpDexClassTransfer(args: PerpDexClassTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: PerpDexClassTransferRequest["action"] = {
-            ...args,
+            ...actionArgs,
             type: "PerpDexClassTransfer",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            nonce: await this.nonceManager(),
+            nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:PerpDexClassTransfer": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "dex", type: "string" },
-                    { name: "token", type: "string" },
-                    { name: "amount", type: "string" },
-                    { name: "toPerp", type: "bool" },
-                    { name: "nonce", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.nonce } satisfies PerpDexClassTransferRequest,
+            { action, signature, nonce } satisfies PerpDexClassTransferRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1812,21 +1663,24 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.registerReferrer({ code: "TEST" });
+     * const data = await exchClient.registerReferrer({ code: "TEST" });
      * ```
      */
     async registerReferrer(args: RegisterReferrerParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: RegisterReferrerRequest["action"] = {
             type: "registerReferrer",
-            code: args.code,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -1835,7 +1689,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies RegisterReferrerRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1855,7 +1709,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.reserveRequestWeight({ weight: 10 });
+     * const data = await exchClient.reserveRequestWeight({ weight: 10 });
      * ```
      */
     async reserveRequestWeight(args: ReserveRequestWeightParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -1869,13 +1723,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: ReserveRequestWeightRequest["action"] = {
             type: "reserveRequestWeight",
-            weight: actionArgs.weight,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             expiresAfter,
@@ -1885,7 +1739,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, expiresAfter } satisfies ReserveRequestWeightRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1905,7 +1759,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.scheduleCancel({ time: Date.now() + 3600000 });
+     * const data = await exchClient.scheduleCancel({ time: Date.now() + 3600000 });
      * ```
      */
     async scheduleCancel(args?: ScheduleCancelParameters, signal?: AbortSignal): Promise<SuccessResponse>;
@@ -1928,14 +1782,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: ScheduleCancelRequest["action"] = {
             type: "scheduleCancel",
-            time: actionArgs.time,
+            ...actionArgs,
         };
-        if (action.time === undefined) delete action.time;
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -1946,7 +1799,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies ScheduleCancelRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -1966,21 +1819,24 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.setDisplayName({ displayName: "My Name" });
+     * const data = await exchClient.setDisplayName({ displayName: "My Name" });
      * ```
      */
     async setDisplayName(args: SetDisplayNameParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: SetDisplayNameRequest["action"] = {
             type: "setDisplayName",
-            displayName: args.displayName,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -1989,7 +1845,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies SetDisplayNameRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2009,21 +1865,24 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.setReferrer({ code: "TEST" });
+     * const data = await exchClient.setReferrer({ code: "TEST" });
      * ```
      */
     async setReferrer(args: SetReferrerParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: SetReferrerRequest["action"] = {
             type: "setReferrer",
-            code: args.code,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -2032,7 +1891,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies SetReferrerRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2043,6 +1902,27 @@ export class ExchangeClient<
      * @throws {ApiRequestError} When the API returns an error response.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/deploying-hip-1-and-hip-2-assets
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     * import { privateKeyToAccount } from "viem/accounts";
+     *
+     * const wallet = privateKeyToAccount("0x...");
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const exchClient = new hl.ExchangeClient({ wallet, transport });
+     *
+     * const data = await exchClient.spotDeploy({
+     *   registerToken2: {
+     *     spec: {
+     *       name: "USDC",
+     *       szDecimals: 8,
+     *       weiDecimals: 8,
+     *     },
+     *     maxGas: 1000000,
+     *     fullName: "USD Coin",
+     *   },
+     * });
+     * ```
      */
     async spotDeploy(
         args: SpotDeployParameters_Genesis,
@@ -2072,106 +1952,35 @@ export class ExchangeClient<
         args: SpotDeployParameters,
         signal?: AbortSignal,
     ): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
-        let action:
-            | SpotDeployRequest_Genesis["action"]
-            | SpotDeployRequest_RegisterHyperliquidity["action"]
-            | SpotDeployRequest_RegisterSpot["action"]
+        const action:
             | SpotDeployRequest_RegisterToken2["action"]
-            | SpotDeployRequest_SetDeployerTradingFeeShare["action"]
-            | SpotDeployRequest_UserGenesis["action"];
-        if ("registerToken2" in args) {
-            action = {
+            | SpotDeployRequest_UserGenesis["action"]
+            | SpotDeployRequest_Genesis["action"]
+            | SpotDeployRequest_RegisterSpot["action"]
+            | SpotDeployRequest_RegisterHyperliquidity["action"]
+            | SpotDeployRequest_SetDeployerTradingFeeShare["action"] = {
                 type: "spotDeploy",
-                registerToken2: {
-                    spec: {
-                        name: args.registerToken2.spec.name,
-                        szDecimals: args.registerToken2.spec.szDecimals,
-                        weiDecimals: args.registerToken2.spec.weiDecimals,
-                    },
-                    maxGas: args.registerToken2.maxGas,
-                    fullName: args.registerToken2.fullName,
-                },
+                ...actionArgs,
             };
-            if (action.registerToken2.fullName === undefined) {
-                delete action.registerToken2.fullName;
-            }
-        } else if ("userGenesis" in args) {
-            action = {
-                type: "spotDeploy",
-                userGenesis: {
-                    token: args.userGenesis.token,
-                    userAndWei: args.userGenesis.userAndWei,
-                    existingTokenAndWei: args.userGenesis.existingTokenAndWei,
-                    blacklistUsers: args.userGenesis.blacklistUsers,
-                },
-            };
-            if (action.userGenesis.blacklistUsers === undefined) {
-                delete action.userGenesis.blacklistUsers;
-            }
-        } else if ("genesis" in args) {
-            action = {
-                type: "spotDeploy",
-                genesis: {
-                    token: args.genesis.token,
-                    maxSupply: args.genesis.maxSupply,
-                    noHyperliquidity: args.genesis.noHyperliquidity,
-                },
-            };
-            if (action.genesis.noHyperliquidity === undefined) {
-                delete action.genesis.noHyperliquidity;
-            }
-        } else if ("registerSpot" in args) {
-            action = {
-                type: "spotDeploy",
-                registerSpot: {
-                    tokens: args.registerSpot.tokens,
-                },
-            };
-        } else if ("registerHyperliquidity" in args) {
-            action = {
-                type: "spotDeploy",
-                registerHyperliquidity: {
-                    spot: args.registerHyperliquidity.spot,
-                    startPx: args.registerHyperliquidity.startPx,
-                    orderSz: args.registerHyperliquidity.orderSz,
-                    nOrders: args.registerHyperliquidity.nOrders,
-                    nSeededLevels: args.registerHyperliquidity.nSeededLevels,
-                },
-            };
-            if (action.registerHyperliquidity.nSeededLevels === undefined) {
-                delete action.registerHyperliquidity.nSeededLevels;
-            }
-        } else {
-            action = {
-                type: "spotDeploy",
-                setDeployerTradingFeeShare: {
-                    token: args.setDeployerTradingFeeShare.token,
-                    share: args.setDeployerTradingFeeShare.share,
-                },
-            };
-        }
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce } as
-                | SpotDeployRequest_RegisterToken2
-                | SpotDeployRequest_UserGenesis
-                | SpotDeployRequest_Genesis
-                | SpotDeployRequest_RegisterSpot
-                | SpotDeployRequest_RegisterHyperliquidity
-                | SpotDeployRequest_SetDeployerTradingFeeShare,
+            { action, signature, nonce },
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2191,7 +2000,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.spotSend({
+     * const data = await exchClient.spotSend({
      *   destination: "0x...",
      *   token: "USDC:0xeb62eee3685fc4c43992febcd9e75443",
      *   amount: "1",
@@ -2199,36 +2008,32 @@ export class ExchangeClient<
      * ```
      */
     async spotSend(args: SpotSendParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: SpotSendRequest["action"] = {
-            ...args,
+            ...actionArgs,
             type: "spotSend",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            time: await this.nonceManager(),
+            time: nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:SpotSend": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "destination", type: "string" },
-                    { name: "token", type: "string" },
-                    { name: "amount", type: "string" },
-                    { name: "time", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.time } satisfies SpotSendRequest,
+            { action, signature, nonce } satisfies SpotSendRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2248,23 +2053,24 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.spotUser({ toggleSpotDusting: { optOut: false } });
+     * const data = await exchClient.spotUser({ toggleSpotDusting: { optOut: false } });
      * ```
      */
     async spotUser(args: SpotUserParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: SpotUserRequest["action"] = {
             type: "spotUser",
-            toggleSpotDusting: {
-                optOut: args.toggleSpotDusting.optOut,
-            },
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -2273,7 +2079,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies SpotUserRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2293,7 +2099,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.subAccountSpotTransfer({
+     * const data = await exchClient.subAccountSpotTransfer({
      *   subAccountUser: "0x...",
      *   isDeposit: true,
      *   token: "USDC:0xeb62eee3685fc4c43992febcd9e75443",
@@ -2305,20 +2111,20 @@ export class ExchangeClient<
         args: SubAccountSpotTransferParameters,
         signal?: AbortSignal,
     ): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: SubAccountSpotTransferRequest["action"] = {
             type: "subAccountSpotTransfer",
-            subAccountUser: args.subAccountUser,
-            isDeposit: args.isDeposit,
-            token: args.token,
-            amount: args.amount,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -2327,7 +2133,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies SubAccountSpotTransferRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2347,7 +2153,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.subAccountTransfer({
+     * const data = await exchClient.subAccountTransfer({
      *   subAccountUser: "0x...",
      *   isDeposit: true,
      *   usd: 1 * 1e6,
@@ -2355,19 +2161,20 @@ export class ExchangeClient<
      * ```
      */
     async subAccountTransfer(args: SubAccountTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: SubAccountTransferRequest["action"] = {
             type: "subAccountTransfer",
-            subAccountUser: args.subAccountUser,
-            isDeposit: args.isDeposit,
-            usd: args.usd,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -2376,7 +2183,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies SubAccountTransferRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2396,7 +2203,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.tokenDelegate({
+     * const data = await exchClient.tokenDelegate({
      *   validator: "0x...",
      *   isUndelegate: true,
      *   wei: 1 * 1e8,
@@ -2404,36 +2211,32 @@ export class ExchangeClient<
      * ```
      */
     async tokenDelegate(args: TokenDelegateParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: TokenDelegateRequest["action"] = {
-            ...args,
+            ...actionArgs,
             type: "tokenDelegate",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            nonce: await this.nonceManager(),
+            nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:TokenDelegate": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "validator", type: "address" },
-                    { name: "wei", type: "uint64" },
-                    { name: "isUndelegate", type: "bool" },
-                    { name: "nonce", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.nonce } satisfies TokenDelegateRequest,
+            { action, signature, nonce } satisfies TokenDelegateRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2453,7 +2256,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.twapCancel({
+     * const data = await exchClient.twapCancel({
      *   a: 0, // Asset index
      *   t: 1, // TWAP ID
      * });
@@ -2471,14 +2274,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: TwapCancelRequest["action"] = {
             type: "twapCancel",
-            a: actionArgs.a,
-            t: actionArgs.t,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -2489,7 +2291,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies TwapCancelRequest,
             signal,
-        ) as TwapCancelResponseSuccess;
+        );
     }
 
     /**
@@ -2509,7 +2311,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.twapOrder({
+     * const data = await exchClient.twapOrder({
      *   a: 0, // Asset index
      *   b: true, // Buy order
      *   s: "1", // Size
@@ -2532,19 +2334,14 @@ export class ExchangeClient<
         const action: TwapOrderRequest["action"] = {
             type: "twapOrder",
             twap: {
-                a: actionArgs.a,
-                b: actionArgs.b,
-                s: this._formatDecimal(actionArgs.s),
-                r: actionArgs.r,
-                m: actionArgs.m,
-                t: actionArgs.t,
+                ...actionArgs,
             },
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -2555,7 +2352,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies TwapOrderRequest,
             signal,
-        ) as TwapOrderResponseSuccess;
+        );
     }
 
     /**
@@ -2575,7 +2372,11 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.updateIsolatedMargin({ asset: 0, isBuy: true, ntli: 1 * 1e6 });
+     * const data = await exchClient.updateIsolatedMargin({
+     *   asset: 0,
+     *   isBuy: true,
+     *   ntli: 1 * 1e6,
+     * });
      * ```
      */
     async updateIsolatedMargin(args: UpdateIsolatedMarginParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2590,15 +2391,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: UpdateIsolatedMarginRequest["action"] = {
             type: "updateIsolatedMargin",
-            asset: actionArgs.asset,
-            isBuy: actionArgs.isBuy,
-            ntli: actionArgs.ntli,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -2609,7 +2408,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies UpdateIsolatedMarginRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2629,7 +2428,11 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.updateLeverage({ asset: 0, isCross: true, leverage: 5 });
+     * const data = await exchClient.updateLeverage({
+     *   asset: 0,
+     *   isCross: true,
+     *   leverage: 5,
+     * });
      * ```
      */
     async updateLeverage(args: UpdateLeverageParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2644,15 +2447,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: UpdateLeverageRequest["action"] = {
             type: "updateLeverage",
-            asset: actionArgs.asset,
-            isCross: actionArgs.isCross,
-            leverage: actionArgs.leverage,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -2663,7 +2464,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, vaultAddress, expiresAfter } satisfies UpdateLeverageRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2683,39 +2484,36 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.usdClassTransfer({ amount: "1", toPerp: true });
+     * const data = await exchClient.usdClassTransfer({ amount: "1", toPerp: true });
      * ```
      */
     async usdClassTransfer(args: UsdClassTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: UsdClassTransferRequest["action"] = {
-            ...args,
+            ...actionArgs,
             type: "usdClassTransfer",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            nonce: await this.nonceManager(),
+            nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:UsdClassTransfer": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "amount", type: "string" },
-                    { name: "toPerp", type: "bool" },
-                    { name: "nonce", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.nonce } satisfies UsdClassTransferRequest,
+            { action, signature, nonce } satisfies UsdClassTransferRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2735,39 +2533,36 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.usdSend({ destination: "0x...", amount: "1" });
+     * const data = await exchClient.usdSend({ destination: "0x...", amount: "1" });
      * ```
      */
     async usdSend(args: UsdSendParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: UsdSendRequest["action"] = {
-            ...args,
+            ...actionArgs,
             type: "usdSend",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            time: await this.nonceManager(),
+            time: nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:UsdSend": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "destination", type: "string" },
-                    { name: "amount", type: "string" },
-                    { name: "time", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.time } satisfies UsdSendRequest,
+            { action, signature, nonce } satisfies UsdSendRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2787,22 +2582,24 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.vaultDistribute({ vaultAddress: "0x...", usd: 10 * 1e6 });
+     * const data = await exchClient.vaultDistribute({ vaultAddress: "0x...", usd: 10 * 1e6 });
      * ```
      */
     async vaultDistribute(args: VaultDistributeParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: VaultDistributeRequest["action"] = {
             type: "vaultDistribute",
-            vaultAddress: args.vaultAddress,
-            usd: args.usd,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -2811,7 +2608,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies VaultDistributeRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2831,7 +2628,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.vaultModify({
+     * const data = await exchClient.vaultModify({
      *   vaultAddress: "0x...",
      *   allowDeposits: true,
      *   alwaysCloseOnWithdraw: false,
@@ -2839,19 +2636,20 @@ export class ExchangeClient<
      * ```
      */
     async vaultModify(args: VaultModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: VaultModifyRequest["action"] = {
             type: "vaultModify",
-            vaultAddress: args.vaultAddress,
-            allowDeposits: args.allowDeposits,
-            alwaysCloseOnWithdraw: args.alwaysCloseOnWithdraw,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
         });
@@ -2860,7 +2658,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce } satisfies VaultModifyRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2880,7 +2678,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.vaultTransfer({
+     * const data = await exchClient.vaultTransfer({
      *   vaultAddress: "0x...",
      *   isDeposit: true,
      *   usd: 10 * 1e6,
@@ -2898,15 +2696,13 @@ export class ExchangeClient<
         const nonce = await this.nonceManager();
         const action: VaultTransferRequest["action"] = {
             type: "vaultTransfer",
-            vaultAddress: actionArgs.vaultAddress,
-            isDeposit: actionArgs.isDeposit,
-            usd: actionArgs.usd,
+            ...actionArgs,
         };
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action,
+            action: actionSorter[action.type](action),
             nonce,
             isTestnet: this.isTestnet,
             expiresAfter,
@@ -2916,7 +2712,7 @@ export class ExchangeClient<
         return await this._request(
             { action, signature, nonce, expiresAfter } satisfies VaultTransferRequest,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /**
@@ -2936,61 +2732,50 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
-     * const result = await client.withdraw3({ destination: "0x...", amount: "1" });
+     * const data = await exchClient.withdraw3({ destination: "0x...", amount: "1" });
      * ```
      */
     async withdraw3(args: Withdraw3Parameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
         // Construct an action
+        const nonce = await this.nonceManager();
         const action: Withdraw3Request["action"] = {
-            ...args,
+            ...actionArgs,
             type: "withdraw3",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
-            time: await this.nonceManager(),
+            time: nonce,
         };
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
-            types: {
-                "HyperliquidTransaction:Withdraw": [
-                    { name: "hyperliquidChain", type: "string" },
-                    { name: "destination", type: "string" },
-                    { name: "amount", type: "string" },
-                    { name: "time", type: "uint64" },
-                ],
-            },
+            types: userSignedActionEip712Types[action.type],
             chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
         return await this._request(
-            { action, signature, nonce: action.time } satisfies Withdraw3Request,
+            { action, signature, nonce } satisfies Withdraw3Request,
             signal,
-        ) as SuccessResponse;
+        );
     }
 
     /** Send an API request and validate the response. */
-    protected async _request(
-        payload: {
-            action: BaseExchangeRequest["action"];
-            signature: BaseExchangeRequest["signature"];
-            nonce: BaseExchangeRequest["nonce"];
-            vaultAddress?: Hex;
-            expiresAfter?: number;
-        },
-        signal?: AbortSignal,
-    ): Promise<
-        | SuccessResponse
-        | CancelResponseSuccess
-        | CreateSubAccountResponse
-        | CreateVaultResponse
-        | OrderResponseSuccess
-        | TwapOrderResponseSuccess
-        | TwapCancelResponseSuccess
-    > {
-        const response = await this.transport.request("exchange", payload, signal) as
+    protected async _request<
+        T extends
+            | SuccessResponse
+            | CancelResponseSuccess
+            | CreateSubAccountResponse
+            | CreateVaultResponse
+            | OrderResponseSuccess
+            | TwapOrderResponseSuccess
+            | TwapCancelResponseSuccess,
+    >(payload: BaseExchangeRequest, signal?: AbortSignal): Promise<T> {
+        const response = await this.transport.request<
             | SuccessResponse
             | ErrorResponse
             | CancelResponse
@@ -2998,25 +2783,16 @@ export class ExchangeClient<
             | CreateVaultResponse
             | OrderResponse
             | TwapOrderResponse
-            | TwapCancelResponse;
+            | TwapCancelResponse
+        >("exchange", payload, signal);
         this._validateResponse(response);
-        return response;
-    }
-
-    /** Formats a decimal number as a string, removing trailing zeros. */
-    protected _formatDecimal(numStr: string): string {
-        if (!numStr.includes(".")) return numStr;
-
-        const [intPart, fracPart] = numStr.split(".");
-        const newFrac = fracPart.replace(/0+$/, "");
-
-        return newFrac ? `${intPart}.${newFrac}` : intPart;
+        return response as T;
     }
 
     /** Guesses the chain ID based on the wallet type or the isTestnet flag. */
     protected async _guessSignatureChainId(): Promise<Hex> {
         // Trying to get chain ID of the wallet
-        if (isAbstractViemWalletClient(this.wallet) || isAbstractExtendedViemWalletClient(this.wallet)) {
+        if (isAbstractViemWalletClient(this.wallet)) {
             if ("getChainId" in this.wallet && typeof this.wallet.getChainId === "function") {
                 const chainId = await this.wallet.getChainId() as number;
                 return `0x${chainId.toString(16)}`;
