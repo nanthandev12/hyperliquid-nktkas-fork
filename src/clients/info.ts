@@ -1,4 +1,5 @@
 import type { IRequestTransport } from "../transports/base.ts";
+import type { SymbolConversion } from "../utils/symbolConversion.ts";
 import type { BlockDetailsRequest, TxDetailsRequest, UserDetailsRequest } from "../types/explorer/requests.ts";
 import type {
     BlockDetails,
@@ -108,6 +109,10 @@ import type { VaultDetails, VaultEquity, VaultSummary } from "../types/info/vaul
 export interface InfoClientParameters<T extends IRequestTransport = IRequestTransport> {
     /** The transport used to connect to the Hyperliquid API. */
     transport: T;
+    /** Whether to use symbol conversion for responses */
+    useSymbolConversion?: boolean;
+    /** Symbol conversion instance to use if useSymbolConversion is true */
+    symbolConversion?: SymbolConversion<T>;
 }
 
 /** Parameters for the {@linkcode InfoClient.allMids} method. */
@@ -247,6 +252,9 @@ export class InfoClient<
     T extends IRequestTransport = IRequestTransport,
 > implements InfoClientParameters<T>, AsyncDisposable {
     transport: T;
+    useSymbolConversion: boolean;
+    symbolConversion?: SymbolConversion<T>;
+    private hasSymbolConversion: boolean;
 
     /**
      * Initialises a new instance.
@@ -262,6 +270,10 @@ export class InfoClient<
      */
     constructor(args: InfoClientParameters<T>) {
         this.transport = args.transport;
+        this.useSymbolConversion = args.useSymbolConversion || false;
+        this.symbolConversion = args.symbolConversion;
+        // Pre-compute whether we have symbol conversion capability
+        this.hasSymbolConversion = this.useSymbolConversion && !!this.symbolConversion;
     }
 
     /**
@@ -282,7 +294,7 @@ export class InfoClient<
      */
     allMids(args?: AllMidsParameters, signal?: AbortSignal): Promise<AllMids>;
     allMids(signal?: AbortSignal): Promise<AllMids>;
-    allMids(args_or_signal?: AllMidsParameters | AbortSignal, maybeSignal?: AbortSignal): Promise<AllMids> {
+    async allMids(args_or_signal?: AllMidsParameters | AbortSignal, maybeSignal?: AbortSignal): Promise<AllMids> {
         const args = args_or_signal instanceof AbortSignal ? {} : args_or_signal;
         const signal = args_or_signal instanceof AbortSignal ? args_or_signal : maybeSignal;
 
@@ -290,7 +302,20 @@ export class InfoClient<
             type: "allMids",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        
+        const response = await this.transport.request<AllMids>("info", request, signal)
+            
+        if (this.hasSymbolConversion) {
+            const convertedResponse: any = {};
+            for (const [key, value] of Object.entries(response)) {
+                const convertedKey = await this.symbolConversion!.convertSymbol(key);
+                const convertedValue = parseFloat(value as string);
+                convertedResponse[convertedKey] = convertedValue;
+            }
+            return convertedResponse as AllMids;
+        } else {
+            return response;
+        }
     }
 
     /**
@@ -340,12 +365,19 @@ export class InfoClient<
      * });
      * ```
      */
-    candleSnapshot(args: CandleSnapshotParameters, signal?: AbortSignal): Promise<Candle[]> {
+    async candleSnapshot(args: CandleSnapshotParameters, signal?: AbortSignal): Promise<Candle[]> {
         const request: CandleSnapshotRequest = {
             type: "candleSnapshot",
-            req: args,
+            req: {
+                ...args,
+                coin: this.hasSymbolConversion ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') : args.coin,
+            },
         };
-        return this.transport.request("info", request, signal);
+        
+        const response = await this.transport.request<Candle[]>("info", request, signal);
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response, ['s'])
+            : response;
     }
 
     /**
@@ -365,12 +397,15 @@ export class InfoClient<
      * const data = await infoClient.clearinghouseState({ user: "0x..." });
      * ```
      */
-    clearinghouseState(args: ClearinghouseStateParameters, signal?: AbortSignal): Promise<PerpsClearinghouseState> {
+    async clearinghouseState(args: ClearinghouseStateParameters, signal?: AbortSignal): Promise<PerpsClearinghouseState> {
         const request: ClearinghouseStateRequest = {
             type: "clearinghouseState",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<PerpsClearinghouseState>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'PERP')
+            : response;
     }
 
     /**
@@ -515,12 +550,15 @@ export class InfoClient<
      * const data = await infoClient.frontendOpenOrders({ user: "0x..." });
      * ```
      */
-    frontendOpenOrders(args: FrontendOpenOrdersParameters, signal?: AbortSignal): Promise<FrontendOrder[]> {
+    async frontendOpenOrders(args: FrontendOpenOrdersParameters, signal?: AbortSignal): Promise<FrontendOrder[]> {
         const request: FrontendOpenOrdersRequest = {
             type: "frontendOpenOrders",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<FrontendOrder[]>("info", request, signal)
+        return this.hasSymbolConversion
+                    ? this.symbolConversion!.convertResponse(response)
+                    : response;
     }
 
     /**
@@ -543,12 +581,16 @@ export class InfoClient<
      * });
      * ```
      */
-    fundingHistory(args: FundingHistoryParameters, signal?: AbortSignal): Promise<FundingHistory[]> {
+    async fundingHistory(args: FundingHistoryParameters, signal?: AbortSignal): Promise<FundingHistory[]> {
         const request: FundingHistoryRequest = {
             type: "fundingHistory",
             ...args,
+            coin: this.hasSymbolConversion ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') : args.coin,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<FundingHistory[]>("info", request, signal)
+        return this.hasSymbolConversion
+          ? await this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'PERP')
+          : response;
     }
 
     /**
@@ -568,12 +610,15 @@ export class InfoClient<
      * const data = await infoClient.historicalOrders({ user: "0x..." });
      * ```
      */
-    historicalOrders(args: HistoricalOrdersParameters, signal?: AbortSignal): Promise<OrderStatus<FrontendOrder>[]> {
+    async historicalOrders(args: HistoricalOrdersParameters, signal?: AbortSignal): Promise<OrderStatus<FrontendOrder>[]> {
         const request: HistoricalOrdersRequest = {
             type: "historicalOrders",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<OrderStatus<FrontendOrder>[]>("info", request, signal)
+        return this.hasSymbolConversion
+          ? await this.symbolConversion!.convertResponse(response)
+          : response;
     }
 
     /**
@@ -618,12 +663,16 @@ export class InfoClient<
      * const data = await infoClient.l2Book({ coin: "ETH", nSigFigs: 2 });
      * ```
      */
-    l2Book(args: L2BookParameters, signal?: AbortSignal): Promise<Book> {
+    async l2Book(args: L2BookParameters, signal?: AbortSignal): Promise<Book> {
         const request: L2BookRequest = {
             type: "l2Book",
             ...args,
+            coin: this.hasSymbolConversion ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') : args.coin,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<Book>("info", request, signal)
+        return this.hasSymbolConversion
+          ? await this.symbolConversion!.convertResponse(response)
+          : response;
     }
 
     /**
@@ -694,7 +743,7 @@ export class InfoClient<
      */
     meta(args?: MetaParameters, signal?: AbortSignal): Promise<PerpsMeta>;
     meta(signal?: AbortSignal): Promise<PerpsMeta>;
-    meta(args_or_signal?: MetaParameters | AbortSignal, maybeSignal?: AbortSignal): Promise<PerpsMeta> {
+    async meta(args_or_signal?: MetaParameters | AbortSignal, maybeSignal?: AbortSignal): Promise<PerpsMeta> {
         const args = args_or_signal instanceof AbortSignal ? {} : args_or_signal;
         const signal = args_or_signal instanceof AbortSignal ? args_or_signal : maybeSignal;
 
@@ -702,7 +751,13 @@ export class InfoClient<
             type: "meta",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        
+        // Get the raw response first
+        const response = await this.transport.request<PerpsMeta>("info", request, signal)
+        // If we have symbol conversion, convert the response, otherwise return it as is
+        return this.hasSymbolConversion 
+            ? this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'PERP') 
+            : response;
     }
 
     /**
@@ -721,11 +776,15 @@ export class InfoClient<
      * const data = await infoClient.metaAndAssetCtxs();
      * ```
      */
-    metaAndAssetCtxs(signal?: AbortSignal): Promise<PerpsMetaAndAssetCtxs> {
+    async metaAndAssetCtxs(signal?: AbortSignal): Promise<PerpsMetaAndAssetCtxs> {
         const request: MetaAndAssetCtxsRequest = {
             type: "metaAndAssetCtxs",
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<PerpsMetaAndAssetCtxs>("info", request, signal)
+        // If we have symbol conversion, convert the response, otherwise return it as is
+        return this.hasSymbolConversion 
+            ? this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'PERP') 
+            : response;
     }
 
     /**
@@ -745,12 +804,15 @@ export class InfoClient<
      * const data = await infoClient.openOrders({ user: "0x..." });
      * ```
      */
-    openOrders(args: OpenOrdersParameters, signal?: AbortSignal): Promise<Order[]> {
+    async openOrders(args: OpenOrdersParameters, signal?: AbortSignal): Promise<Order[]> {
         const request: OpenOrdersRequest = {
             type: "openOrders",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<Order[]>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response)
+            : response;
     }
 
     /**
@@ -770,12 +832,15 @@ export class InfoClient<
      * const data = await infoClient.orderStatus({ user: "0x...", oid: 12345 });
      * ```
      */
-    orderStatus(args: OrderStatusParameters, signal?: AbortSignal): Promise<OrderLookup> {
+    async orderStatus(args: OrderStatusParameters, signal?: AbortSignal): Promise<OrderLookup> {
         const request: OrderStatusRequest = {
             type: "orderStatus",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<OrderLookup>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response)
+            : response;
     }
 
     /**
@@ -841,11 +906,14 @@ export class InfoClient<
      * const data = await infoClient.perpsAtOpenInterestCap();
      * ```
      */
-    perpsAtOpenInterestCap(signal?: AbortSignal): Promise<string[]> {
+    async perpsAtOpenInterestCap(signal?: AbortSignal): Promise<string[]> {
         const request: PerpsAtOpenInterestCapRequest = {
             type: "perpsAtOpenInterestCap",
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<string[]>("info", request, signal)
+        return this.hasSymbolConversion
+          ? await this.symbolConversion!.convertResponse(response, [], 'PERP')
+          : response;
     }
 
     /**
@@ -889,11 +957,14 @@ export class InfoClient<
      * const data = await infoClient.predictedFundings();
      * ```
      */
-    predictedFundings(signal?: AbortSignal): Promise<PredictedFunding[]> {
+    async predictedFundings(signal?: AbortSignal): Promise<PredictedFunding[]> {
         const request: PredictedFundingsRequest = {
             type: "predictedFundings",
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<PredictedFunding[]>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'PERP')
+            : response;
     }
 
     /**
@@ -963,15 +1034,15 @@ export class InfoClient<
      * const data = await infoClient.spotClearinghouseState({ user: "0x..." });
      * ```
      */
-    spotClearinghouseState(
-        args: SpotClearinghouseStateParameters,
-        signal?: AbortSignal,
-    ): Promise<SpotClearinghouseState> {
+    async spotClearinghouseState(args: SpotClearinghouseStateParameters, signal?: AbortSignal): Promise<SpotClearinghouseState> {
         const request: SpotClearinghouseStateRequest = {
             type: "spotClearinghouseState",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<SpotClearinghouseState>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'SPOT')
+            : response;
     }
 
     /**
@@ -991,12 +1062,15 @@ export class InfoClient<
      * const data = await infoClient.spotDeployState({ user: "0x..." });
      * ```
      */
-    spotDeployState(args: SpotDeployStateParameters, signal?: AbortSignal): Promise<SpotDeployState> {
+    async spotDeployState(args: SpotDeployStateParameters, signal?: AbortSignal): Promise<SpotDeployState> {
         const request: SpotDeployStateRequest = {
             type: "spotDeployState",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<SpotDeployState>("info", request, signal)
+        return this.hasSymbolConversion
+          ? await this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'SPOT')
+          : response;
     }
 
     /**
@@ -1015,11 +1089,15 @@ export class InfoClient<
      * const data = await infoClient.spotMeta();
      * ```
      */
-    spotMeta(signal?: AbortSignal): Promise<SpotMeta> {
+    async spotMeta(signal?: AbortSignal): Promise<SpotMeta> {
         const request: SpotMetaRequest = {
             type: "spotMeta",
         };
-        return this.transport.request("info", request, signal);
+        
+        const response = await this.transport.request<SpotMeta>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'SPOT')
+            : response;
     }
 
     /**
@@ -1038,11 +1116,15 @@ export class InfoClient<
      * const data = await infoClient.spotMetaAndAssetCtxs();
      * ```
      */
-    spotMetaAndAssetCtxs(signal?: AbortSignal): Promise<SpotMetaAndAssetCtxs> {
+    async spotMetaAndAssetCtxs(signal?: AbortSignal): Promise<SpotMetaAndAssetCtxs> {
         const request: SpotMetaAndAssetCtxsRequest = {
             type: "spotMetaAndAssetCtxs",
         };
-        return this.transport.request("info", request, signal);
+        
+        const response = await this.transport.request<SpotMetaAndAssetCtxs>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'SPOT')
+            : response;
     }
 
     /**
@@ -1087,12 +1169,13 @@ export class InfoClient<
      * const data = await infoClient.tokenDetails({ tokenId: "0x..." });
      * ```
      */
-    tokenDetails(args: TokenDetailsParameters, signal?: AbortSignal): Promise<TokenDetails> {
+    async tokenDetails(args: TokenDetailsParameters, signal?: AbortSignal): Promise<TokenDetails> {
         const request: TokenDetailsRequest = {
             type: "tokenDetails",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<TokenDetails>("info", request, signal)
+        return response;
     }
 
     /**
@@ -1112,12 +1195,15 @@ export class InfoClient<
      * const data = await infoClient.twapHistory({ user: "0x..." });
      * ```
      */
-    twapHistory(args: TwapHistoryParameters, signal?: AbortSignal): Promise<TwapHistory[]> {
+    async twapHistory(args: TwapHistoryParameters, signal?: AbortSignal): Promise<TwapHistory[]> {
         const request: TwapHistoryRequest = {
             type: "twapHistory",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<TwapHistory[]>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response)
+            : response;
     }
 
     /**
@@ -1214,12 +1300,15 @@ export class InfoClient<
      * const data = await infoClient.userFills({ user: "0x..." });
      * ```
      */
-    userFills(args: UserFillsParameters, signal?: AbortSignal): Promise<Fill[]> {
+    async userFills(args: UserFillsParameters, signal?: AbortSignal): Promise<Fill[]> {
         const request: UserFillsRequest = {
             type: "userFills",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<Fill[]>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response)
+            : response;
     }
 
     /**
@@ -1242,12 +1331,15 @@ export class InfoClient<
      * });
      * ```
      */
-    userFillsByTime(args: UserFillsByTimeParameters, signal?: AbortSignal): Promise<Fill[]> {
+    async userFillsByTime(args: UserFillsByTimeParameters, signal?: AbortSignal): Promise<Fill[]> {
         const request: UserFillsByTimeRequest = {
             type: "userFillsByTime",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<Fill[]>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response)
+            : response;
     }
 
     /**
@@ -1270,12 +1362,15 @@ export class InfoClient<
      * });
      * ```
      */
-    userFunding(args: UserFundingParameters, signal?: AbortSignal): Promise<UserFundingUpdate[]> {
+    async userFunding(args: UserFundingParameters, signal?: AbortSignal): Promise<UserFundingUpdate[]> {
         const request: UserFundingRequest = {
             type: "userFunding",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<UserFundingUpdate[]>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response)
+            : response;
     }
 
     /**
@@ -1404,12 +1499,15 @@ export class InfoClient<
      * const data = await infoClient.userTwapSliceFills({ user: "0x..." });
      * ```
      */
-    userTwapSliceFills(args: UserTwapSliceFillsParameters, signal?: AbortSignal): Promise<TwapSliceFill[]> {
+    async userTwapSliceFills(args: UserTwapSliceFillsParameters, signal?: AbortSignal): Promise<TwapSliceFill[]> {
         const request: UserTwapSliceFillsRequest = {
             type: "userTwapSliceFills",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<TwapSliceFill[]>("info", request, signal)
+        return this.hasSymbolConversion
+          ? await this.symbolConversion!.convertResponse(response)
+          : response;
     }
 
     /**
@@ -1432,12 +1530,15 @@ export class InfoClient<
      * });
      * ```
      */
-    userTwapSliceFillsByTime(args: UserTwapSliceFillsByTimeParameters, signal?: AbortSignal): Promise<TwapSliceFill[]> {
+    async userTwapSliceFillsByTime(args: UserTwapSliceFillsByTimeParameters, signal?: AbortSignal): Promise<TwapSliceFill[]> {
         const request: UserTwapSliceFillsByTimeRequest = {
             type: "userTwapSliceFillsByTime",
             ...args,
         };
-        return this.transport.request("info", request, signal);
+        const response = await this.transport.request<TwapSliceFill[]>("info", request, signal)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.convertResponse(response)
+            : response;
     }
 
     /**

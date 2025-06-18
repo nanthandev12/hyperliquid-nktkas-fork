@@ -39,11 +39,26 @@ import type {
 import type { Candle } from "../types/info/assets.ts";
 import type { Book, Order, OrderStatus } from "../types/info/orders.ts";
 import type { TxDetails } from "../types/explorer/responses.ts";
+import { SymbolConversion } from "../utils/symbolConversion.ts";
 
 /** Parameters for the {@linkcode SubscriptionClient} constructor. */
 export interface SubscriptionClientParameters<T extends ISubscriptionTransport = ISubscriptionTransport> {
     /** The transport used to connect to the Hyperliquid API. */
     transport: T;
+    /**
+     * Whether to use symbol conversion for coin names.
+     * 
+     * When true, coins like "BTC" will be converted to their underlying API format (like "BTC-PERP").
+     * 
+     * Defaults to `false`.
+     */
+    useSymbolConversion?: boolean;
+    /**
+     * The symbol conversion instance to use if useSymbolConversion is true.
+     * 
+     * Required if useSymbolConversion is true.
+     */
+    symbolConversion?: SymbolConversion;
 }
 
 /** Parameters for the {@linkcode SubscriptionClient.activeAssetCtx} method. */
@@ -102,6 +117,9 @@ export class SubscriptionClient<
     T extends ISubscriptionTransport = ISubscriptionTransport,
 > implements SubscriptionClientParameters<T>, AsyncDisposable {
     transport: T;
+    useSymbolConversion: boolean;
+    symbolConversion?: SymbolConversion;
+    private hasSymbolConversion: boolean;
 
     /**
      * Initialises a new instance.
@@ -117,6 +135,10 @@ export class SubscriptionClient<
      */
     constructor(args: SubscriptionClientParameters<T>) {
         this.transport = args.transport;
+        this.useSymbolConversion = args.useSymbolConversion || false;
+        this.symbolConversion = args.symbolConversion;
+        // Pre-compute whether we have symbol conversion capability
+        this.hasSymbolConversion = this.useSymbolConversion && !!this.symbolConversion;
     }
 
     /**
@@ -138,18 +160,32 @@ export class SubscriptionClient<
      * });
      * ```
      */
-    activeAssetCtx(
+    async activeAssetCtx(
         args: EventActiveAssetCtxParameters,
         listener: (data: WsActiveAssetCtx | WsActiveSpotAssetCtx) => void,
     ): Promise<Subscription> {
         const channel = args.coin.startsWith("@") ? "activeSpotAssetCtx" : "activeAssetCtx";
+        
+        // Convert the coin in the request if symbol conversion is enabled (using 'reverse' direction)
+        const requestCoin = this.hasSymbolConversion 
+            ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') 
+            : args.coin;
+            
         const payload: WsActiveAssetCtxRequest = {
             type: "activeAssetCtx",
-            coin: args.coin,
+            coin: requestCoin,
         };
-        return this.transport.subscribe<WsActiveAssetCtx | WsActiveSpotAssetCtx>(channel, payload, (e) => {
-            if (e.detail.coin === args.coin) {
-                listener(e.detail);
+
+        return this.transport.subscribe<WsActiveAssetCtx | WsActiveSpotAssetCtx>(channel, payload, async (e) => {
+            // Check if the incoming message matches our subscription
+            if (e.detail.coin === requestCoin) {
+                // Convert the response data if symbol conversion is enabled
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -173,18 +209,30 @@ export class SubscriptionClient<
      * });
      * ```
      */
-    activeAssetData(
+    async activeAssetData(
         args: EventActiveAssetDataParameters,
         listener: (data: WsActiveAssetData) => void,
     ): Promise<Subscription> {
+        // Convert the coin in the request if symbol conversion is enabled (using 'reverse' direction)
+        const requestCoin = this.hasSymbolConversion 
+            ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') 
+            : args.coin;
+            
         const payload: WsActiveAssetDataRequest = {
             type: "activeAssetData",
-            coin: args.coin,
+            coin: requestCoin,
             user: args.user,
         };
-        return this.transport.subscribe<WsActiveAssetData>(payload.type, payload, (e) => {
-            if (e.detail.coin === args.coin && e.detail.user === args.user.toLowerCase()) {
-                listener(e.detail);
+        
+        return this.transport.subscribe<WsActiveAssetData>(payload.type, payload, async (e) => {
+            if (e.detail.user.toLowerCase() === args.user.toLowerCase() && e.detail.coin === requestCoin) {
+                // Convert the response data if symbol conversion is enabled
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -212,7 +260,7 @@ export class SubscriptionClient<
         args: WsAllMidsParameters,
         listener: (data: WsAllMids) => void,
     ): Promise<Subscription>;
-    allMids(
+    async allMids(
         args_or_listener: WsAllMidsParameters | ((data: WsAllMids) => void),
         maybeListener?: (data: WsAllMids) => void,
     ): Promise<Subscription> {
@@ -223,8 +271,18 @@ export class SubscriptionClient<
             type: "allMids",
             dex: args.dex,
         };
-        return this.transport.subscribe<WsAllMids>(payload.type, payload, (e) => {
-            listener(e.detail);
+        return this.transport.subscribe<WsAllMids>(payload.type, payload,async (e) => {
+            if (this.hasSymbolConversion) {
+               const convertedResponse: any = {};
+                for (const [key, value] of Object.entries(e.detail)) {
+                  const convertedKey = await this.symbolConversion!.convertSymbol(key);
+                  const convertedValue = parseFloat(value as string);
+                  convertedResponse[convertedKey] = convertedValue;
+                }
+                listener(convertedResponse);
+            } else {
+                listener(e.detail);
+            }
         });
     }
 
@@ -247,14 +305,26 @@ export class SubscriptionClient<
      * });
      * ```
      */
-    bbo(args: EventBboParameters, listener: (data: WsBbo) => void): Promise<Subscription> {
+    async bbo(args: EventBboParameters, listener: (data: WsBbo) => void): Promise<Subscription> {
+        // Convert the coin in the request if symbol conversion is enabled (using 'reverse' direction)
+        const requestCoin = this.hasSymbolConversion 
+            ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') 
+            : args.coin;
+            
         const payload: WsBboRequest = {
             type: "bbo",
-            coin: args.coin,
+            coin: requestCoin,
         };
-        return this.transport.subscribe<WsBbo>(payload.type, payload, (e) => {
-            if (e.detail.coin === args.coin) {
-                listener(e.detail);
+        
+        return this.transport.subscribe<WsBbo>(payload.type, payload, async (e) => {
+            if (e.detail.coin === requestCoin) {
+                // Convert the response data if symbol conversion is enabled
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -278,15 +348,28 @@ export class SubscriptionClient<
      * });
      * ```
      */
-    candle(args: EventCandleParameters, listener: (data: Candle) => void): Promise<Subscription> {
+    async candle(args: EventCandleParameters, listener: (data: Candle) => void): Promise<Subscription> {
+        // Convert the coin in the request if symbol conversion is enabled (using 'reverse' direction)
+        const requestCoin = this.hasSymbolConversion 
+            ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') 
+            : args.coin;
+            
         const payload: WsCandleRequest = {
             type: "candle",
-            coin: args.coin,
+            coin: requestCoin,
             interval: args.interval,
         };
-        return this.transport.subscribe<Candle>(payload.type, payload, (e) => {
-            if (e.detail.s === args.coin && e.detail.i === args.interval) {
-                listener(e.detail);
+        
+        return this.transport.subscribe<Candle>(payload.type, payload, async (e) => {
+            if (e.detail.s === requestCoin) {
+                // Convert the response data if symbol conversion is enabled
+                if (this.hasSymbolConversion) {
+                    // Note: for candle data, we need to specifically convert the 's' field
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail, ['s']);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -366,16 +449,28 @@ export class SubscriptionClient<
      * });
      * ```
      */
-    l2Book(args: EventL2BookParameters, listener: (data: Book) => void): Promise<Subscription> {
+    async l2Book(args: EventL2BookParameters, listener: (data: Book) => void): Promise<Subscription> {
+        // Convert the coin in the request if symbol conversion is enabled (using 'reverse' direction)
+        const requestCoin = this.hasSymbolConversion 
+            ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') 
+            : args.coin;
+            
         const payload: WsL2BookRequest = {
             type: "l2Book",
-            coin: args.coin,
+            coin: requestCoin,
             nSigFigs: args.nSigFigs ?? null,
             mantissa: args.mantissa ?? null,
         };
-        return this.transport.subscribe<Book>(payload.type, payload, (e) => {
-            if (e.detail.coin === args.coin) {
-                listener(e.detail);
+        
+        return this.transport.subscribe<Book>(payload.type, payload, async (e) => {
+            if (e.detail.coin === requestCoin) {
+                // Convert the response data if symbol conversion is enabled
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -404,8 +499,13 @@ export class SubscriptionClient<
             type: "notification",
             user: args.user,
         };
-        return this.transport.subscribe<WsNotification>(payload.type, payload, (e) => {
-            listener(e.detail);
+        return this.transport.subscribe<WsNotification>(payload.type, payload, async (e) => {
+            if (this.hasSymbolConversion) {
+                const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                listener(convertedData);
+            } else {
+                listener(e.detail);
+            }
         });
     }
 
@@ -436,8 +536,13 @@ export class SubscriptionClient<
             type: "orderUpdates",
             user: args.user,
         };
-        return this.transport.subscribe<OrderStatus<Order>[]>(payload.type, payload, (e) => {
-            listener(e.detail);
+        return this.transport.subscribe<OrderStatus<Order>[]>(payload.type, payload, async (e) => {
+            if (this.hasSymbolConversion) {
+                const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                listener(convertedData);
+            } else {
+                listener(e.detail);
+            }
         });
     }
 
@@ -460,14 +565,26 @@ export class SubscriptionClient<
      * });
      * ```
      */
-    trades(args: EventTradesParameters, listener: (data: WsTrade[]) => void): Promise<Subscription> {
+    async trades(args: EventTradesParameters, listener: (data: WsTrade[]) => void): Promise<Subscription> {
+        // Convert the coin in the request if symbol conversion is enabled (using 'reverse' direction)
+        const requestCoin = this.hasSymbolConversion 
+            ? await this.symbolConversion!.convertSymbol(args.coin, 'reverse') 
+            : args.coin;
+            
         const payload: WsTradesRequest = {
             type: "trades",
-            coin: args.coin,
+            coin: requestCoin,
         };
-        return this.transport.subscribe<WsTrade[]>(payload.type, payload, (e) => {
-            if (e.detail[0]?.coin === args.coin) {
-                listener(e.detail);
+        
+        return this.transport.subscribe<WsTrade[]>(payload.type, payload, async (e) => {
+            if (e.detail[0]?.coin === requestCoin) {
+                // Convert the response data if symbol conversion is enabled
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -498,8 +615,13 @@ export class SubscriptionClient<
             type: "userEvents",
             user: args.user,
         };
-        return this.transport.subscribe<WsUserEvent>("user", payload, (e) => {
-            listener(e.detail);
+        return this.transport.subscribe<WsUserEvent>("user", payload, async (e) => {
+            if (this.hasSymbolConversion) {
+                const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                listener(convertedData);
+            } else {
+                listener(e.detail);
+            }
         });
     }
 
@@ -528,9 +650,14 @@ export class SubscriptionClient<
             user: args.user,
             aggregateByTime: args.aggregateByTime ?? false,
         };
-        return this.transport.subscribe<WsUserFills>(payload.type, payload, (e) => {
+        return this.transport.subscribe<WsUserFills>(payload.type, payload, async (e) => {
             if (e.detail.user === args.user.toLowerCase()) {
-                listener(e.detail);
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -559,9 +686,14 @@ export class SubscriptionClient<
             type: "userFundings",
             user: args.user,
         };
-        return this.transport.subscribe<WsUserFundings>(payload.type, payload, (e) => {
+        return this.transport.subscribe<WsUserFundings>(payload.type, payload, async (e) => {
             if (e.detail.user === args.user.toLowerCase()) {
-                listener(e.detail);
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -658,9 +790,14 @@ export class SubscriptionClient<
             type: "userTwapSliceFills",
             user: args.user,
         };
-        return this.transport.subscribe<WsUserTwapSliceFills>(payload.type, payload, (e) => {
+        return this.transport.subscribe<WsUserTwapSliceFills>(payload.type, payload, async (e) => {
             if (e.detail.user === args.user.toLowerCase()) {
-                listener(e.detail);
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.convertResponse(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }
@@ -689,9 +826,14 @@ export class SubscriptionClient<
             type: "webData2",
             user: args.user,
         };
-        return this.transport.subscribe<WsWebData2>(payload.type, payload, (e) => {
+        return this.transport.subscribe<WsWebData2>(payload.type, payload, async (e) => {
             if (e.detail.user === args.user.toLowerCase()) {
-                listener(e.detail);
+                if (this.hasSymbolConversion) {
+                    const convertedData = await this.symbolConversion!.processWebData2(e.detail);
+                    listener(convertedData);
+                } else {
+                    listener(e.detail);
+                }
             }
         });
     }

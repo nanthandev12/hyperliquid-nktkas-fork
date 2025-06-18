@@ -20,6 +20,9 @@ export * from "./src/clients/subscription.ts";
 export * from "./src/transports/http/http_transport.ts";
 export * from "./src/transports/websocket/websocket_transport.ts";
 
+// utils
+export * from "./src/utils/symbolConversion.ts";
+
 // Types
 export type * from "./src/types/exchange/responses.ts";
 export type * from "./src/types/explorer/responses.ts";

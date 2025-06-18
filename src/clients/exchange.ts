@@ -75,6 +75,7 @@ import {
     signUserSignedAction,
     userSignedActionEip712Types,
 } from "../signing/mod.ts";
+import { SymbolConversion } from "../utils/symbolConversion.ts";
 
 /** Parameters for the {@linkcode ExchangeClient} constructor. */
 export interface ExchangeClientParameters<
@@ -108,6 +109,20 @@ export interface ExchangeClientParameters<
      * Defaults to a function that returns the current timestamp or, if duplicated, increments the last nonce.
      */
     nonceManager?: () => MaybePromise<number>;
+    /**
+     * Whether to use symbol conversion for coin names.
+     * 
+     * When true, coins like "BTC" will be converted to their underlying API format (like "BTC-PERP").
+     * 
+     * Defaults to `false`.
+     */
+    useSymbolConversion?: boolean;
+    /**
+     * The symbol conversion instance to use if useSymbolConversion is true.
+     * 
+     * Required if useSymbolConversion is true.
+     */
+    symbolConversion?: any;
 }
 
 /** Parameters for the {@linkcode ExchangeClient.approveAgent} method. */
@@ -506,6 +521,11 @@ export class ExchangeClient<
     defaultExpiresAfter?: number | (() => MaybePromise<number>);
     signatureChainId: Hex | (() => MaybePromise<Hex>);
     nonceManager: () => MaybePromise<number>;
+    useSymbolConversion: boolean;
+    symbolConversion?: SymbolConversion<T>;
+    private hasSymbolConversion: boolean;
+
+    
 
     /**
      * Initialises a new instance.
@@ -571,6 +591,22 @@ export class ExchangeClient<
         this.defaultExpiresAfter = args.defaultExpiresAfter;
         this.signatureChainId = args.signatureChainId ?? this._guessSignatureChainId;
         this.nonceManager = args.nonceManager ?? new NonceManager().getNonce;
+        this.useSymbolConversion = args.useSymbolConversion || false;
+        this.symbolConversion = args.symbolConversion;
+        // Pre-compute whether we have symbol conversion capability
+        this.hasSymbolConversion = this.useSymbolConversion && !!this.symbolConversion;
+    }
+
+    private async getAssetIndex(symbol: string): Promise<number> {
+        if (!this.hasSymbolConversion) {
+            throw new Error("Symbol conversion is not enabled");
+        }
+        
+        const index = await this.symbolConversion!.getAssetIndex(symbol);
+        if (index === undefined) {
+            throw new Error(`Unknown asset: ${symbol}`);
+        }
+        return index;
     }
 
     /**
@@ -708,6 +744,7 @@ export class ExchangeClient<
      * ```
      */
     async batchModify(args: BatchModifyParameters, signal?: AbortSignal): Promise<OrderResponseSuccess> {
+
         // Destructure the parameters
         const {
             vaultAddress = this.defaultVaultAddress,
@@ -771,11 +808,28 @@ export class ExchangeClient<
             ...actionArgs
         } = args;
 
+        // Process symbol conversion for cancels if needed
+        let convertedActionArgs = { ...actionArgs };
+        
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        if (this.hasSymbolConversion && actionArgs.cancels) {
+            const convertedCancels = await Promise.all(actionArgs.cancels.map(async (cancel) => {
+                if (typeof cancel.a === 'string') {
+                    // Convert the symbol to asset index
+                    const assetIndex = await this.getAssetIndex(cancel.a);
+                    return { ...cancel, a: assetIndex };
+                }
+                return cancel;
+            }));
+            
+            convertedActionArgs.cancels = convertedCancels;
+        }
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: CancelRequest["action"] = {
             type: "cancel",
-            ...actionArgs,
+            ...convertedActionArgs,
         };
 
         // Sign the action
@@ -825,12 +879,29 @@ export class ExchangeClient<
             expiresAfter = await this._getDefaultExpiresAfter(),
             ...actionArgs
         } = args;
+        
+        // Process symbol conversion for cancels if needed
+        let convertedActionArgs = { ...actionArgs };
+        
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        if (this.hasSymbolConversion && actionArgs.cancels) {
+            const convertedCancels = await Promise.all(actionArgs.cancels.map(async (cancel) => {
+                if (typeof cancel.asset === 'string') {
+                    // Convert the symbol to asset index
+                    const assetIndex = await this.getAssetIndex(cancel.asset);
+                    return { ...cancel, asset: assetIndex };
+                }
+                return cancel;
+            }));
+            
+            convertedActionArgs.cancels = convertedCancels;
+        }
 
         // Construct an action
         const nonce = await this.nonceManager();
         const action: CancelByCloidRequest["action"] = {
             type: "cancelByCloid",
-            ...actionArgs,
+            ...convertedActionArgs,
         };
 
         // Sign the action
@@ -1348,11 +1419,24 @@ export class ExchangeClient<
             ...actionArgs
         } = args;
 
+        // Process symbol conversion for order if needed
+        let convertedActionArgs = { ...actionArgs };
+        
+        // Convert asset ID from symbol to index if symbol conversion is enabled
+        if (this.hasSymbolConversion && actionArgs.order) {
+            const order = actionArgs.order;
+            if (typeof order.a === 'string') {
+                // Convert the symbol to asset index
+                const assetIndex = await this.getAssetIndex(order.a);
+                convertedActionArgs.order = { ...order, a: assetIndex };
+            }
+        }
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: ModifyRequest["action"] = {
             type: "modify",
-            ...actionArgs,
+            ...convertedActionArgs,
         };
 
         // Sign the action
@@ -1501,11 +1585,28 @@ export class ExchangeClient<
             ...actionArgs
         } = args;
 
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        let convertedActionArgs = { ...actionArgs };
+        
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        if (this.hasSymbolConversion && actionArgs.orders) {
+            const convertedOrders = await Promise.all(actionArgs.orders.map(async (order) => {
+                if (typeof order.a === 'string') {
+                    // Convert the symbol to asset index
+                    const assetIndex = await this.getAssetIndex(order.a);
+                    return { ...order, a: assetIndex };
+                }
+                return order;
+            }));
+            
+            convertedActionArgs.orders = convertedOrders;
+        }
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: OrderRequest["action"] = {
             type: "order",
-            ...actionArgs,
+            ...convertedActionArgs,
         };
 
         // Sign the action
@@ -2249,11 +2350,27 @@ export class ExchangeClient<
             ...actionArgs
         } = args;
 
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        let convertedActionArgs = { ...actionArgs };
+        
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        if (this.hasSymbolConversion && actionArgs.a && typeof actionArgs.a === 'string') {
+            // Convert the symbol to asset index
+            const assetIndex = await this.getAssetIndex(actionArgs.a);
+            convertedActionArgs.a = assetIndex;
+        }
+
+        if (this.hasSymbolConversion && actionArgs.a && typeof actionArgs.a === 'string') {
+            // Convert the symbol to asset index
+            const assetIndex = await this.getAssetIndex(actionArgs.a);
+            convertedActionArgs.a = assetIndex;
+        }
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: TwapCancelRequest["action"] = {
             type: "twapCancel",
-            ...actionArgs,
+            ...convertedActionArgs,
         };
 
         // Sign the action
@@ -2307,12 +2424,22 @@ export class ExchangeClient<
             ...actionArgs
         } = args;
 
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        let convertedActionArgs = { ...actionArgs };
+        
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        if (this.hasSymbolConversion && actionArgs.a && typeof actionArgs.a === 'string') {
+            // Convert the symbol to asset index
+            const assetIndex = await this.getAssetIndex(actionArgs.a);
+            convertedActionArgs.a = assetIndex;
+        }
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: TwapOrderRequest["action"] = {
             type: "twapOrder",
             twap: {
-                ...actionArgs,
+                ...convertedActionArgs,
             },
         };
 
@@ -2364,11 +2491,21 @@ export class ExchangeClient<
             ...actionArgs
         } = args;
 
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        let convertedActionArgs = { ...actionArgs };
+        
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        if (this.hasSymbolConversion && actionArgs.asset && typeof actionArgs.asset === 'string') {
+            // Convert the symbol to asset index
+            const assetIndex = await this.getAssetIndex(actionArgs.asset);
+            convertedActionArgs.asset = assetIndex;
+        }
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: UpdateIsolatedMarginRequest["action"] = {
             type: "updateIsolatedMargin",
-            ...actionArgs,
+            ...convertedActionArgs,
         };
 
         // Sign the action
@@ -2419,11 +2556,21 @@ export class ExchangeClient<
             ...actionArgs
         } = args;
 
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        let convertedActionArgs = { ...actionArgs };
+        
+        // Convert asset IDs from symbols to indices if symbol conversion is enabled
+        if (this.hasSymbolConversion && actionArgs.asset && typeof actionArgs.asset === 'string') {
+            // Convert the symbol to asset index
+            const assetIndex = await this.getAssetIndex(actionArgs.asset);
+            convertedActionArgs.asset = assetIndex;
+        }
+
         // Construct an action
         const nonce = await this.nonceManager();
         const action: UpdateLeverageRequest["action"] = {
             type: "updateLeverage",
-            ...actionArgs,
+            ...convertedActionArgs,
         };
 
         // Sign the action
