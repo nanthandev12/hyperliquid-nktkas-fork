@@ -16,6 +16,10 @@ export * from "./src/clients/info.ts";
 export * from "./src/clients/multiSign.ts";
 export * from "./src/clients/subscription.ts";
 
+// Custom Clients
+export * from "./src/clients/custominfo.ts";
+export * from "./src/clients/customexchange.ts";
+
 // Transports
 export * from "./src/transports/http/http_transport.ts";
 export * from "./src/transports/websocket/websocket_transport.ts";

@@ -104,6 +104,7 @@ import type {
     VaultSummariesRequest,
 } from "../types/info/requests.ts";
 import type { VaultDetails, VaultEquity, VaultSummary } from "../types/info/vaults.ts";
+import { Hex } from "../base.ts";
 
 /** Parameters for the {@linkcode InfoClient} constructor. */
 export interface InfoClientParameters<T extends IRequestTransport = IRequestTransport> {
@@ -1636,6 +1637,21 @@ export class InfoClient<
             type: "vaultSummaries",
         };
         return this.transport.request("info", request, signal);
+    }
+
+
+    // Define the interface for webData2 parameters
+    async webData2(args: { user: Hex }, signal?: AbortSignal): Promise<any> {
+        const request: any = {
+            type: "webData2",
+            ...args  // Spread the args object into the request
+        };
+        console.log("request",request)
+        const response = await this.transport.request<any>("info", request, signal)
+        console.log("response",response)
+        return this.hasSymbolConversion
+            ? await this.symbolConversion!.processWebData2(response)
+            : response;
     }
 
     async [Symbol.asyncDispose](): Promise<void> {
