@@ -5,13 +5,13 @@ import {
   formatUnits, 
   encodeFunctionData,
   parseAbi,
-} from 'npm:viem@1.19.9';
+} from 'viem';
 
 import type { 
   PublicClient,
   Address,
   Hex
-} from 'npm:viem@1.19.9';
+} from 'viem';
 
 // Define the types here instead of importing them
 export interface TokenInfo {

@@ -3,16 +3,39 @@ import { MulticallClient, TokenInfo } from '../evm/multicall';
 import type { IRequestTransport } from "../transports/base.ts";
 import type { SpotClearinghouseState} from "../types/info/accounts.ts";
 import type { SpotMeta } from "../types/info/assets.ts";
+import type { SpotClearinghouseStateParameters } from "../clients/info.ts";
 
 import type {
     SpotClearinghouseStateRequest,
     SpotMetaRequest,
 } from "../types/info/requests.ts";
 
+export interface TransferrableAsset {
+  coin: string;
+  token: number;
+  total: string;
+  hold: string;
+  withdrawable: string;
+  systemAddress: string;
+  tokenId: string;
+}
+
+export interface EvmToken {
+  name: string;
+  index: number;
+  evmAddress: string;
+  systemAddress: string;
+  tokenId: string;
+  decimals: number;
+}
+
 export interface CustomInfoClientParameters<T extends IRequestTransport = IRequestTransport> {
     /** The transport used to connect to the Hyperliquid API. */
     transport: T;
+    /** The user address to be used for requests. */
+    user: Hex;
 }
+
 
 
 
@@ -20,6 +43,7 @@ export class CustomInfoClient<
     T extends IRequestTransport = IRequestTransport,
 > implements CustomInfoClientParameters<T>, AsyncDisposable {
     transport: T;
+    user: Hex;
    
 
     /**
@@ -36,22 +60,22 @@ export class CustomInfoClient<
      */
     constructor(args: CustomInfoClientParameters<T>) {
         this.transport = args.transport;
+        this.user = args.user;
     }
 
   // Helper method to get spot meta data
-    async spotMeta(signal?: AbortSignal): Promise<SpotMeta> {
+    private async spotMeta(signal?: AbortSignal): Promise<SpotMeta> {
         const request: SpotMetaRequest = {
             type: "spotMeta",
         };
-        
-        return await this.transport.request<SpotMeta>("info", request, signal)
+        return await this.transport.request("info", request, signal)
     }
 
-   private async spotClearinghouseState(user: Hex, signal?: AbortSignal): Promise<SpotClearinghouseState> {
-    const request: SpotClearinghouseStateRequest = {
-             type: "spotClearinghouseState",
-             user,
-         };
+    private async spotClearinghouseState(args: SpotClearinghouseStateParameters, signal?: AbortSignal): Promise<SpotClearinghouseState> {
+      const request: SpotClearinghouseStateRequest = {
+          type: "spotClearinghouseState",
+          ...args,
+      };
          console.log("request",request)
          return await this.transport.request("info", request, signal)
      }
@@ -62,23 +86,12 @@ export class CustomInfoClient<
    * Returns a list of assets that can be transferred between HyperEVM and spot
    * Only assets with an EVM contract can be transferred
    * @param user The user address to check transferrable assets for
-   * @param rawResponse Whether to return the raw response without symbol conversion
    * @returns Array of transferrable assets with coin name, token index, total balance, hold amount, withdrawable amount, system address, and token ID
    */
-  async getTransferrableAssets(user: Hex): Promise<
-    Array<{
-      coin: string;
-      token: number;
-      total: string;
-      hold: string;
-      withdrawable: string;
-      systemAddress: string;
-      tokenId: string;
-    }>
-  > {
+  async getTransferrableAssets(): Promise<TransferrableAsset[]> {
     // Get both the clearinghouse state and meta data
     const [clearinghouseState, meta] = await Promise.all([
-      this.spotClearinghouseState(user),
+      this.spotClearinghouseState({user: this.user}),
       this.spotMeta(),
     ]);
 
@@ -150,16 +163,7 @@ export class CustomInfoClient<
    * Returns a list of all coins that have an EVM contract
    * @returns Array of coins with EVM contracts, including name, EVM address, system address, token ID, and decimals
    */
-  async getEvmTokens(): Promise<
-    Array<{
-      name: string;
-      index: number;
-      evmAddress: string;
-      systemAddress: string;
-      tokenId: string;
-      decimals: number;
-    }>
-  > {
+  async getEvmTokens(): Promise<EvmToken[]> {
     // Get the spot metadata
     const meta = await this.spotMeta();
 
@@ -204,14 +208,13 @@ export class CustomInfoClient<
   /**
    * Returns a list of all coins that have an EVM contract along with their balances for a specific wallet
    * @param walletAddress The wallet address to check balances for
-   * @param isTestnet Whether to use testnet environment for EVM calls
    * @returns Array of coins with EVM contracts including name, EVM address, system address, token ID, decimals, and balance
    */
-  async getEvmTokensWithBalances(user: Hex, isTestnet: boolean = false) {
+  async getEvmTokensWithBalances() {
     // Get the EVM tokens first
     const evmTokens = await this.getEvmTokens();
 
-    const clearinghouseState = await this.spotClearinghouseState(user);
+    const clearinghouseState = await this.spotClearinghouseState({user: this.user});
 
     const coreBalanceMap = new Map();
     if (clearinghouseState.balances && Array.isArray(clearinghouseState.balances)) {
@@ -225,8 +228,7 @@ export class CustomInfoClient<
     }
 
     // Initialize the multicall client with the appropriate network setting
-    const client = new MulticallClient(isTestnet);
-
+    const client = new MulticallClient((this.transport as any).isTestnet);
     // Convert our token data to the format expected by the multicall client
     const tokenInfos: TokenInfo[] = evmTokens
       .filter(token => token.evmAddress) // Skip tokens with empty EVM addresses (like HYPE)
@@ -237,10 +239,10 @@ export class CustomInfoClient<
       }));
 
     // Get ERC20 token balances using multicall
-    const balanceResult = await client.getTokenBalances(user, tokenInfos);
+    const balanceResult = await client.getTokenBalances(this.user, tokenInfos);
 
     // Get native HYPE balance separately
-    const nativeBalance = await client.getNativeBalance(user);
+    const nativeBalance = await client.getNativeBalance(this.user);
 
     // Merge the balances back into our token list
     const tokensWithBalances = evmTokens.map(token => {
@@ -288,19 +290,10 @@ export class CustomInfoClient<
     return tokensWithBalances;
   }
 
-  async getAllSpotBalances(user: Hex): Promise<
-    Array<{
-      coin: string;
-      token: number;
-      total: string;
-      hold: string;
-      withdrawable: string;
-      tokenId: string;
-    }>
-  > {
+  async getAllSpotBalances(): Promise<Omit<TransferrableAsset, 'systemAddress'>[]> {
     // Get both the clearinghouse state and meta data
     const [clearinghouseState, meta] = await Promise.all([
-      this.spotClearinghouseState(user),
+      this.spotClearinghouseState({user: this.user}),
       this.spotMeta(),
     ]);
 
