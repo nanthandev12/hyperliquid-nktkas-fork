@@ -111,6 +111,7 @@ import type {
     VaultSummariesRequest,
 } from "../types/info/requests.ts";
 import type { VaultDetails, VaultEquity, VaultLeading, VaultSummary } from "../types/info/vaults.ts";
+import type { Hex } from "../base.ts";
 /** Parameters for the {@linkcode InfoClient} constructor. */
 export interface InfoClientParameters<T extends IRequestTransport = IRequestTransport> {
     /** The transport used to connect to the Hyperliquid API. */
@@ -735,35 +736,7 @@ export class InfoClient<
           : response;
     }
 
-    /**
-     * Request leading vaults for a user.
-     * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
-     * @returns
-     *
-     * @throws {TransportError} When the transport layer throws an error.
-     *
-     * @see null
-     * @example
-     * ```ts
-     * import * as hl from "@nktkas/hyperliquid";
-     *
-     * const transport = new hl.HttpTransport(); // or WebSocketTransport
-     * const infoClient = new hl.InfoClient({ transport });
-     *
-     * const data = await infoClient.leadingVaults({ user: "0x..." });
-     * ```
-     */
-    leadingVaults(args: LeadingVaultsParameters, signal?: AbortSignal): Promise<VaultLeading[]> {
-        const request: LeadingVaultsRequest = {
-            type: "leadingVaults",
-            ...args,
-        };
-        const response = await this.transport.request<Book>("info", request, signal)
-        return this.hasSymbolConversion
-          ? await this.symbolConversion!.convertResponse(response)
-          : response;
-    }
+  
 
     /**
      * Request leading vaults for a user.
