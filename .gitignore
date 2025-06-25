@@ -1,2 +1,6 @@
+.github
+examples
+build/npm
+node_modules
 .DS_Store
 /build
