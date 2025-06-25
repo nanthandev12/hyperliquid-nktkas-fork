@@ -1,15 +1,12 @@
-import { type Hex, HyperliquidError, type MaybePromise } from "../base.ts";
+import { type DeepImmutable, type Hex, HyperliquidError, type MaybePromise } from "../base.ts";
 import type { IRequestTransport } from "../transports/base.ts";
 import type {
     ApproveAgentRequest,
     ApproveBuilderFeeRequest,
-    BaseExchangeRequest,
     BatchModifyRequest,
     CancelByCloidRequest,
     CancelRequest,
     CDepositRequest,
-    ClaimRewardsRequest,
-    ConvertToMultiSigUserRequest,
     ConvertToMultiSigUserRequest_Signers,
     CreateSubAccountRequest,
     CreateVaultRequest,
@@ -26,6 +23,7 @@ import type {
     PerpDeployRequest_RegisterAsset,
     PerpDeployRequest_SetOracle,
     PerpDexClassTransferRequest,
+    PerpDexTransferRequest,
     RegisterReferrerRequest,
     ReserveRequestWeightRequest,
     ScheduleCancelRequest,
@@ -253,6 +251,12 @@ export type PerpDeployParameters_SetOracle = Omit<PerpDeployRequest_SetOracle["a
 /** Parameters for the {@linkcode ExchangeClient.perpDexClassTransfer} method. */
 export type PerpDexClassTransferParameters = Omit<
     PerpDexClassTransferRequest["action"],
+    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
+>;
+
+/** Parameters for the {@linkcode ExchangeClient.perpDexTransfer} method. */
+export type PerpDexTransferParameters = Omit<
+    PerpDexTransferRequest["action"],
     "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
 >;
 
@@ -531,7 +535,7 @@ export class ExchangeClient<
      * Initialises a new instance.
      * @param args - The parameters for the client.
      *
-     * @example Private key
+     * @example Private key directly
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
      *
@@ -541,18 +545,18 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      * ```
      *
-     * @example Private key via [viem](https://viem.sh/docs/clients/wallet#local-accounts-private-key-mnemonic-etc)
+     * @example [Viem](https://viem.sh/docs/clients/wallet#local-accounts-private-key-mnemonic-etc)
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
      * import { privateKeyToAccount } from "viem/accounts";
      *
-     * const wallet = privateKeyToAccount("0x...");
+     * const account = privateKeyToAccount("0x...");
      *
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet, transport });
+     * const exchClient = new hl.ExchangeClient({ wallet: account, transport });
      * ```
      *
-     * @example Private key via [ethers.js](https://docs.ethers.org/v6/api/wallet/#Wallet) or [ethers.js v5](https://docs.ethers.org/v5/api/signer/#Wallet)
+     * @example [ethers.js](https://docs.ethers.org/v6/api/wallet/#Wallet) or [ethers.js v5](https://docs.ethers.org/v5/api/signer/#Wallet)
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
      * import { ethers } from "ethers";
@@ -563,24 +567,26 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      * ```
      *
-     * @example External wallet (e.g. MetaMask) via [viem](https://viem.sh/docs/clients/wallet#optional-hoist-the-account)
+     * @example External wallet (e.g. MetaMask) via [viem](https://viem.sh/docs/clients/wallet)
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
      * import { createWalletClient, custom } from "viem";
      *
-     * const [account] = await window.ethereum.request({ method: "eth_requestAccounts" });
-     * const wallet = createWalletClient({ account, transport: custom(window.ethereum) });
+     * const ethereum = (window as any).ethereum;
+     * const [account] = await ethereum.request({ method: "eth_requestAccounts" });
+     * const wallet = createWalletClient({ account, transport: custom(ethereum) });
      *
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet, transport });
      * ```
      *
-     * @example External wallet (e.g. MetaMask) via `window.ethereum` directly
+     * @example External wallet (e.g. MetaMask) via [`window.ethereum`](https://eips.ethereum.org/EIPS/eip-1193)
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
      *
+     * const ethereum = (window as any).ethereum;
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet: window.ethereum, transport });
+     * const exchClient = new hl.ExchangeClient({ wallet: ethereum, transport });
      * ```
      */
     constructor(args: ExchangeClientParameters<T, W>) {
@@ -614,7 +620,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#approve-an-api-wallet
      * @example
@@ -625,38 +633,39 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.approveAgent({ agentAddress: "0x...", agentName: "agentName" });
+     * await exchClient.approveAgent({ agentAddress: "0x...", agentName: "..." });
      * ```
      */
-    async approveAgent(args: ApproveAgentParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+    async approveAgent(args: DeepImmutable<ApproveAgentParameters>, signal?: AbortSignal): Promise<SuccessResponse> {
         // Destructure the parameters
         const { ...actionArgs } = args;
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: ApproveAgentRequest["action"] = {
-            ...actionArgs,
-            agentName: args.agentName ?? "",
+        const action = actionSorter.approveAgent({
             type: "approveAgent",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
         if (action.agentName === "") action.agentName = null;
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies ApproveAgentRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -664,7 +673,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#approve-a-builder-fee
      * @example
@@ -675,36 +686,41 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.approveBuilderFee({ maxFeeRate: "0.01%", builder: "0x..." });
+     * await exchClient.approveBuilderFee({ maxFeeRate: "0.01%", builder: "0x..." });
      * ```
      */
-    async approveBuilderFee(args: ApproveBuilderFeeParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+    async approveBuilderFee(
+        args: DeepImmutable<ApproveBuilderFeeParameters>,
+        signal?: AbortSignal,
+    ): Promise<SuccessResponse> {
         // Destructure the parameters
         const { ...actionArgs } = args;
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: ApproveBuilderFeeRequest["action"] = {
-            ...actionArgs,
+        const action = actionSorter.approveBuilderFee({
             type: "approveBuilderFee",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies ApproveBuilderFeeRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -712,7 +728,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful variant of {@link OrderResponse} without error statuses.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#modify-multiple-orders
      * @example
@@ -724,27 +742,23 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
      * const data = await exchClient.batchModify({
-     *   modifies: [{
-     *     oid: 123,
-     *     order: {
-     *       a: 0, // Asset index
-     *       b: true, // Buy order
-     *       p: "31000", // New price
-     *       s: "0.2", // New size
-     *       r: false, // Not reduce-only
-     *       t: {
-     *         limit: {
-     *           tif: "Gtc", // Good-til-cancelled
-     *         },
+     *   modifies: [
+     *     {
+     *       oid: 123,
+     *       order: {
+     *         a: 0,
+     *         b: true,
+     *         p: "31000",
+     *         s: "0.2",
+     *         r: false,
+     *         t: { limit: { tif: "Gtc" } },
      *       },
-     *       c: "0x...", // Client Order ID (optional)
      *     },
-     *   }],
+     *   ],
      * });
      * ```
      */
-    async batchModify(args: BatchModifyParameters, signal?: AbortSignal): Promise<OrderResponseSuccess> {
-
+    async batchModify(args: DeepImmutable<BatchModifyParameters>, signal?: AbortSignal): Promise<OrderResponseSuccess> {
         // Destructure the parameters
         const {
             vaultAddress = this.defaultVaultAddress,
@@ -754,15 +768,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: BatchModifyRequest["action"] = {
-            type: "batchModify",
-            ...actionArgs,
-        };
+        const action = actionSorter.batchModify({ type: "batchModify", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -770,10 +781,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies BatchModifyRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as OrderResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -781,7 +795,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful variant of {@link CancelResponse} without error statuses.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#cancel-order-s
      * @example
@@ -793,10 +809,9 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
      * const data = await exchClient.cancel({
-     *   cancels: [{
-     *     a: 0, // Asset index
-     *     o: 123, // Order ID
-     *   }],
+     *   cancels: [
+     *     { a: 0, o: 123 },
+     *   ],
      * });
      * ```
      */
@@ -827,15 +842,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: CancelRequest["action"] = {
-            type: "cancel",
-            ...convertedActionArgs,
-        };
+        const action = actionSorter.cancel({ type: "cancel", ...convertedActionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -843,10 +855,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies CancelRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as CancelResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -854,7 +869,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful variant of {@link CancelResponse} without error statuses.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#cancel-order-s-by-cloid
      * @example
@@ -899,15 +916,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: CancelByCloidRequest["action"] = {
-            type: "cancelByCloid",
-            ...convertedActionArgs,
-        };
+        const action = actionSorter.cancelByCloid({ type: "cancelByCloid", ...convertedActionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -915,10 +929,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies CancelByCloidRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as CancelResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -926,7 +943,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#deposit-into-staking
      * @example
@@ -937,7 +956,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.cDeposit({ wei: 1 * 1e8 });
+     * await exchClient.cDeposit({ wei: 1 * 1e8 });
      * ```
      */
     async cDeposit(args: CDepositParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -946,27 +965,29 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: CDepositRequest["action"] = {
-            ...actionArgs,
+        const action = actionSorter.cDeposit({
             type: "cDeposit",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies CDepositRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -974,9 +995,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -985,29 +1008,30 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.claimRewards();
+     * await exchClient.claimRewards();
      * ```
      */
     async claimRewards(signal?: AbortSignal): Promise<SuccessResponse> {
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: ClaimRewardsRequest["action"] = {
-            type: "claimRewards",
-        };
+        const action = actionSorter.claimRewards({ type: "claimRewards" });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies ClaimRewardsRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1015,7 +1039,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/hypercore/multi-sig
      * @example
@@ -1026,10 +1052,14 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.convertToMultiSigUser({ // convert to multi-sig user
+     * // Convert to multi-sig user
+     * await exchClient.convertToMultiSigUser({
      *   authorizedUsers: ["0x...", "0x...", "0x..."],
      *   threshold: 2,
      * });
+     *
+     * // Convert to single-sig user
+     * await exchClient.convertToMultiSigUser(null);
      * ```
      */
     async convertToMultiSigUser(args: ConvertToMultiSigUserParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -1038,27 +1068,29 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: ConvertToMultiSigUserRequest["action"] = {
+        const action = actionSorter.convertToMultiSigUser({
             type: "convertToMultiSigUser",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             signers: JSON.stringify(actionArgs),
             nonce,
-        };
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies ConvertToMultiSigUserRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1066,9 +1098,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Response for creating a sub-account.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1077,7 +1111,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.createSubAccount({ name: "subAccountName" });
+     * const data = await exchClient.createSubAccount({ name: "..." });
      * ```
      */
     async createSubAccount(args: CreateSubAccountParameters, signal?: AbortSignal): Promise<CreateSubAccountResponse> {
@@ -1086,24 +1120,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: CreateSubAccountRequest["action"] = {
-            type: "createSubAccount",
-            ...actionArgs,
-        };
+        const action = actionSorter.createSubAccount({ type: "createSubAccount", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies CreateSubAccountRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as CreateSubAccountResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1111,9 +1145,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Response for creating a vault.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1122,11 +1158,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.createVault({
-     *   name: "VaultName",
-     *   description: "Vault description",
-     *   initialUsd: 100 * 1e6,
-     * });
+     * const data = await exchClient.createVault({ name: "...", description: "...", initialUsd: 100 * 1e6 });
      * ```
      */
     async createVault(args: CreateVaultParameters, signal?: AbortSignal): Promise<CreateVaultResponse> {
@@ -1135,25 +1167,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: CreateVaultRequest["action"] = {
-            type: "createVault",
-            nonce,
-            ...actionArgs,
-        };
+        const action = actionSorter.createVault({ type: "createVault", nonce, ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies CreateVaultRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as CreateVaultResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1161,9 +1192,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1173,14 +1206,12 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
      * // Jail self
-     * const data = await exchClient.cSignerAction({ jailSelf: null });
+     * await exchClient.cSignerAction({ jailSelf: null });
      *
      * // Unjail self
-     * const data = await exchClient.cSignerAction({ unjailSelf: null });
+     * await exchClient.cSignerAction({ unjailSelf: null });
      * ```
      */
-    async cSignerAction(args: CSignerActionParameters_JailSelf, signal?: AbortSignal): Promise<SuccessResponse>;
-    async cSignerAction(args: CSignerActionParameters_UnjailSelf, signal?: AbortSignal): Promise<SuccessResponse>;
     async cSignerAction(args: CSignerActionParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         // Destructure the parameters
         const {
@@ -1190,25 +1221,25 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: CSignerActionRequest_JailSelf["action"] | CSignerActionRequest_UnjailSelf["action"] = {
-            type: "CSignerAction",
-            ...actionArgs,
-        };
+        const action = actionSorter.CSignerAction({ type: "CSignerAction", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             expiresAfter,
         });
 
         // Send a request
-        return await this._request(
+        const response = await this.transport.request(
+            "exchange",
             { action, signature, nonce, expiresAfter },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1216,8 +1247,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1227,31 +1261,35 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
      * // Change validator profile
-     * const data = await exchClient.cValidatorAction({
+     * await exchClient.cValidatorAction({
      *   changeProfile: {
-     *     name: "My Validator",
-     *     description: "Validator description",
+     *     name: "...",
+     *     description: "...",
      *     unjailed: true,
      *   }
      * });
+     *
+     * // Register a new validator
+     * await exchClient.cValidatorAction({
+     *   register: {
+     *     profile: {
+     *       node_ip: { Ip: "1.2.3.4" },
+     *       name: "...",
+     *       description: "...",
+     *       delegations_disabled: true,
+     *       commission_bps: 1,
+     *       signer: "0x...",
+     *     },
+     *     unjailed: false,
+     *     initial_wei: 1,
+     *   },
+     * });
+     *
+     * // Unregister a validator
+     * await exchClient.cValidatorAction({ unregister: null });
      * ```
      */
-    async cValidatorAction(
-        args: CValidatorActionParameters_ChangeProfile,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async cValidatorAction(
-        args: CValidatorActionParameters_Register,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async cValidatorAction(
-        args: CValidatorActionParameters_Unregister,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async cValidatorAction(
-        args: CValidatorActionParameters,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse> {
+    async cValidatorAction(args: CValidatorActionParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         // Destructure the parameters
         const {
             expiresAfter = await this._getDefaultExpiresAfter(),
@@ -1260,28 +1298,25 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action:
-            | CValidatorActionRequest_ChangeProfile["action"]
-            | CValidatorActionRequest_Register["action"]
-            | CValidatorActionRequest_Unregister["action"] = {
-                type: "CValidatorAction",
-                ...actionArgs,
-            };
+        const action = actionSorter.CValidatorAction({ type: "CValidatorAction", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             expiresAfter,
         });
 
         // Send a request
-        return await this._request(
+        const response = await this.transport.request(
+            "exchange",
             { action, signature, nonce, expiresAfter },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1289,7 +1324,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#withdraw-from-staking
      * @example
@@ -1300,7 +1337,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.cWithdraw({ wei: 1 * 1e8 });
+     * await exchClient.cWithdraw({ wei: 1 * 1e8 });
      * ```
      */
     async cWithdraw(args: CWithdrawParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -1309,27 +1346,29 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: CWithdrawRequest["action"] = {
-            ...actionArgs,
+        const action = actionSorter.cWithdraw({
             type: "cWithdraw",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies CWithdrawRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1337,7 +1376,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Response for creating a sub-account.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/evm/dual-block-architecture
      * @example
@@ -1357,24 +1398,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: EvmUserModifyRequest["action"] = {
-            type: "evmUserModify",
-            ...actionArgs,
-        };
+        const action = actionSorter.evmUserModify({ type: "evmUserModify", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies EvmUserModifyRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1382,7 +1423,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#modify-an-order
      * @example
@@ -1393,20 +1436,16 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.modify({
+     * await exchClient.modify({
      *   oid: 123,
      *   order: {
-     *     a: 0, // Asset index
-     *     b: true, // Buy order
-     *     p: "31000", // New price
-     *     s: "0.2", // New size
-     *     r: false, // Not reduce-only
-     *     t: {
-     *       limit: {
-     *         tif: "Gtc", // Good-til-cancelled
-     *       },
-     *     },
-     *     c: "0x...", // Client Order ID (optional)
+     *     a: 0,
+     *     b: true,
+     *     p: "31000",
+     *     s: "0.2",
+     *     r: false,
+     *     t: { limit: { tif: "Gtc" } },
+     *     c: "0x...",
      *   },
      * });
      * ```
@@ -1434,15 +1473,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: ModifyRequest["action"] = {
-            type: "modify",
-            ...convertedActionArgs,
-        };
+        const action = actionSorter.modify({ type: "modify", ...convertedActionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -1450,38 +1486,48 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies ModifyRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
      * A multi-signature request.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     * @returns Any successful response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/hypercore/multi-sig
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
+     * import { actionSorter, signL1Action } from "@nktkas/hyperliquid/signing";
+     * import { privateKeyToAccount } from "viem/accounts";
      *
-     * const privateKey = "0x..."; // or `viem`, `ethers`
+     * const wallet = privateKeyToAccount("0x..."); // or any other wallet libraries
+     * const multiSigUser = "0x...";
+     *
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
-     *
-     * const multiSigUser = "0x..."; // Multi-sig user address
+     * const exchClient = new hl.ExchangeClient({ wallet, transport });
      *
      * const nonce = Date.now();
-     * const action = { type: "scheduleCancel", time: Date.now() + 10000 };
+     * const action = {
+     *   type: "scheduleCancel",
+     *   time: Date.now() + 10000,
+     * } as const;
      *
-     * const signature = await hl.signL1Action({
+     * // Create the required number of signatures
+     * const signature = await signL1Action({
      *   wallet,
-     *   action: [multiSigUser.toLowerCase(), signer1.address.toLowerCase(), action],
+     *   action: [multiSigUser.toLowerCase(), wallet.address.toLowerCase(), actionSorter[action.type](action)],
      *   nonce,
-     *   isTestnet: true,
      * });
      *
      * const data = await exchClient.multiSig({
@@ -1514,33 +1560,42 @@ export class ExchangeClient<
         } = args;
 
         // Construct an action
-        const action: MultiSigRequest["action"] = {
+        const action = actionSorter.multiSig({
             type: "multiSig",
             signatureChainId: await this._getSignatureChainId(),
             ...actionArgs,
-        };
+        });
 
         // Sign the action
-        const actionForMultiSig = actionSorter[action.type](action) as
-            & Omit<MultiSigRequest["action"], "type">
-            & { type?: string | undefined };
-        delete actionForMultiSig.type;
+        // deno-lint-ignore no-explicit-any
+        const actionWithoutType = structuredClone<any>(action);
+        delete actionWithoutType.type;
 
         const signature = await signMultiSigAction({
             wallet: this.wallet,
-            action: actionForMultiSig,
+            action: actionWithoutType,
             nonce,
+            isTestnet: this.isTestnet,
             vaultAddress,
             expiresAfter,
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: action.signatureChainId,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies MultiSigRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as
+            | SuccessResponse
+            | ErrorResponse
+            | CancelResponse
+            | CreateSubAccountResponse
+            | CreateVaultResponse
+            | OrderResponse
+            | TwapOrderResponse
+            | TwapCancelResponse;
+        this._validateResponse(response);
+        return response as T;
     }
 
     /**
@@ -1548,7 +1603,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful variant of {@link OrderResponse} without error statuses.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#place-an-order
      * @example
@@ -1560,20 +1617,18 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
      * const data = await exchClient.order({
-     *   orders: [{
-     *     a: 0, // Asset index
-     *     b: true, // Buy order
-     *     p: "30000", // Price
-     *     s: "0.1", // Size
-     *     r: false, // Not reduce-only
-     *     t: {
-     *       limit: {
-     *         tif: "Gtc", // Good-til-cancelled
-     *       },
+     *   orders: [
+     *     {
+     *       a: 0,
+     *       b: true,
+     *       p: "30000",
+     *       s: "0.1",
+     *       r: false,
+     *       t: { limit: { tif: "Gtc" } },
+     *       c: "0x...",
      *     },
-     *     c: "0x...", // Client Order ID (optional)
-     *   }],
-     *   grouping: "na", // No grouping
+     *   ],
+     *   grouping: "na",
      * });
      * ```
      */
@@ -1604,15 +1659,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: OrderRequest["action"] = {
-            type: "order",
-            ...convertedActionArgs,
-        };
+        const action = actionSorter.order({ type: "order", ...convertedActionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -1620,10 +1672,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies OrderRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as OrderResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1631,7 +1686,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/deploying-hip-3-assets
      * @example
@@ -1642,7 +1699,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.perpDeploy({
+     * await exchClient.perpDeploy({
      *   registerAsset: {
      *     maxGas: 1000000,
      *     assetRequest: {
@@ -1657,32 +1714,30 @@ export class ExchangeClient<
      * });
      * ```
      */
-    async perpDeploy(args: PerpDeployParameters_RegisterAsset, signal?: AbortSignal): Promise<SuccessResponse>;
-    async perpDeploy(args: PerpDeployParameters_SetOracle, signal?: AbortSignal): Promise<SuccessResponse>;
     async perpDeploy(args: PerpDeployParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         // Destructure the parameters
         const { ...actionArgs } = args;
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: PerpDeployRequest_RegisterAsset["action"] | PerpDeployRequest_SetOracle["action"] = {
-            type: "perpDeploy",
-            ...actionArgs,
-        };
+        const action = actionSorter.perpDeploy({ type: "perpDeploy", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
+        const response = await this.transport.request(
+            "exchange",
             { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1690,7 +1745,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#transfer-from-spot-account-to-perp-account-and-vice-versa
      * @example
@@ -1701,12 +1758,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.perpDexClassTransfer({
-     *   dex: "test",
-     *   token: "USDC",
-     *   amount: "1",
-     *   toPerp: true,
-     * });
+     * await exchClient.perpDexClassTransfer({ dex: "test", token: "USDC", amount: "1", toPerp: true });
      * ```
      */
     async perpDexClassTransfer(args: PerpDexClassTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -1715,37 +1767,41 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: PerpDexClassTransferRequest["action"] = {
-            ...actionArgs,
+        const action = actionSorter.PerpDexClassTransfer({
             type: "PerpDexClassTransfer",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies PerpDexClassTransferRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
-     * Create a referral code.
+     * Transfer collateral tokens between different perp dexes for the same user.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#transfer-from-perp-account-to-perp-account-for-builder-deployed-dex
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1754,7 +1810,59 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.registerReferrer({ code: "TEST" });
+     * await exchClient.perpDexTransfer({ sourceDex: "", destinationDex: "test", amount: "1" });
+     * ```
+     */
+    async perpDexTransfer(args: PerpDexTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        // Destructure the parameters
+        const { ...actionArgs } = args;
+
+        // Construct an action
+        const nonce = await this.nonceManager();
+        const action = actionSorter.PerpDexTransfer({
+            type: "PerpDexTransfer",
+            hyperliquidChain: this._getHyperliquidChain(),
+            signatureChainId: await this._getSignatureChainId(),
+            nonce,
+            ...actionArgs,
+        });
+
+        // Sign the action
+        const signature = await signUserSignedAction({
+            wallet: this.wallet,
+            action,
+            types: userSignedActionEip712Types[action.type],
+        });
+
+        // Send a request
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
+            signal,
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
+    }
+
+    /**
+     * Create a referral code.
+     * @param args - The parameters for the request.
+     * @param signal - An optional abort signal.
+     * @returns Successful response without specific data.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const privateKey = "0x..."; // or `viem`, `ethers`
+     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
+     * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
+     *
+     * await exchClient.registerReferrer({ code: "..." });
      * ```
      */
     async registerReferrer(args: RegisterReferrerParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -1763,24 +1871,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: RegisterReferrerRequest["action"] = {
-            type: "registerReferrer",
-            ...actionArgs,
-        };
+        const action = actionSorter.registerReferrer({ type: "registerReferrer", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies RegisterReferrerRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1788,7 +1896,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#reserve-additional-actions
      * @example
@@ -1799,7 +1909,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.reserveRequestWeight({ weight: 10 });
+     * await exchClient.reserveRequestWeight({ weight: 10 });
      * ```
      */
     async reserveRequestWeight(args: ReserveRequestWeightParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -1811,25 +1921,25 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: ReserveRequestWeightRequest["action"] = {
-            type: "reserveRequestWeight",
-            ...actionArgs,
-        };
+        const action = actionSorter.reserveRequestWeight({ type: "reserveRequestWeight", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             expiresAfter,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, expiresAfter } satisfies ReserveRequestWeightRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, expiresAfter },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1837,7 +1947,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#schedule-cancel-dead-mans-switch
      * @example
@@ -1848,7 +1960,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.scheduleCancel({ time: Date.now() + 3600000 });
+     * await exchClient.scheduleCancel({ time: Date.now() + 10_000 });
      * ```
      */
     async scheduleCancel(args?: ScheduleCancelParameters, signal?: AbortSignal): Promise<SuccessResponse>;
@@ -1869,15 +1981,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: ScheduleCancelRequest["action"] = {
-            type: "scheduleCancel",
-            ...actionArgs,
-        };
+        const action = actionSorter.scheduleCancel({ type: "scheduleCancel", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -1885,10 +1994,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies ScheduleCancelRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1896,9 +2008,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1907,7 +2021,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.setDisplayName({ displayName: "My Name" });
+     * await exchClient.setDisplayName({ displayName: "..." });
      * ```
      */
     async setDisplayName(args: SetDisplayNameParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -1916,24 +2030,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: SetDisplayNameRequest["action"] = {
-            type: "setDisplayName",
-            ...actionArgs,
-        };
+        const action = actionSorter.setDisplayName({ type: "setDisplayName", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies SetDisplayNameRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1941,9 +2055,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1952,7 +2068,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.setReferrer({ code: "TEST" });
+     * await exchClient.setReferrer({ code: "..." });
      * ```
      */
     async setReferrer(args: SetReferrerParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -1961,24 +2077,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: SetReferrerRequest["action"] = {
-            type: "setReferrer",
-            ...actionArgs,
-        };
+        const action = actionSorter.setReferrer({ type: "setReferrer", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies SetReferrerRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -1986,7 +2102,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/deploying-hip-1-and-hip-2-assets
      * @example
@@ -1997,7 +2115,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.spotDeploy({
+     * await exchClient.spotDeploy({
      *   registerToken2: {
      *     spec: {
      *       name: "USDC",
@@ -2010,63 +2128,30 @@ export class ExchangeClient<
      * });
      * ```
      */
-    async spotDeploy(
-        args: SpotDeployParameters_Genesis,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async spotDeploy(
-        args: SpotDeployParameters_RegisterHyperliquidity,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async spotDeploy(
-        args: SpotDeployParameters_RegisterSpot,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async spotDeploy(
-        args: SpotDeployParameters_RegisterToken2,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async spotDeploy(
-        args: SpotDeployParameters_SetDeployerTradingFeeShare,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async spotDeploy(
-        args: SpotDeployParameters_UserGenesis,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse>;
-    async spotDeploy(
-        args: SpotDeployParameters,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse> {
+    async spotDeploy(args: SpotDeployParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         // Destructure the parameters
         const { ...actionArgs } = args;
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action:
-            | SpotDeployRequest_RegisterToken2["action"]
-            | SpotDeployRequest_UserGenesis["action"]
-            | SpotDeployRequest_Genesis["action"]
-            | SpotDeployRequest_RegisterSpot["action"]
-            | SpotDeployRequest_RegisterHyperliquidity["action"]
-            | SpotDeployRequest_SetDeployerTradingFeeShare["action"] = {
-                type: "spotDeploy",
-                ...actionArgs,
-            };
+        const action = actionSorter.spotDeploy({ type: "spotDeploy", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
+        const response = await this.transport.request(
+            "exchange",
             { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2074,7 +2159,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-spot-transfer
      * @example
@@ -2085,7 +2172,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.spotSend({
+     * await exchClient.spotSend({
      *   destination: "0x...",
      *   token: "USDC:0xeb62eee3685fc4c43992febcd9e75443",
      *   amount: "1",
@@ -2098,27 +2185,29 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: SpotSendRequest["action"] = {
-            ...actionArgs,
+        const action = actionSorter.spotSend({
             type: "spotSend",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             time: nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies SpotSendRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2126,9 +2215,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -2137,7 +2228,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.spotUser({ toggleSpotDusting: { optOut: false } });
+     * await exchClient.spotUser({ toggleSpotDusting: { optOut: false } });
      * ```
      */
     async spotUser(args: SpotUserParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2146,24 +2237,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: SpotUserRequest["action"] = {
-            type: "spotUser",
-            ...actionArgs,
-        };
+        const action = actionSorter.spotUser({ type: "spotUser", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies SpotUserRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2171,9 +2262,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -2182,7 +2275,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.subAccountSpotTransfer({
+     * await exchClient.subAccountSpotTransfer({
      *   subAccountUser: "0x...",
      *   isDeposit: true,
      *   token: "USDC:0xeb62eee3685fc4c43992febcd9e75443",
@@ -2199,24 +2292,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: SubAccountSpotTransferRequest["action"] = {
-            type: "subAccountSpotTransfer",
-            ...actionArgs,
-        };
+        const action = actionSorter.subAccountSpotTransfer({ type: "subAccountSpotTransfer", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies SubAccountSpotTransferRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2224,9 +2317,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -2235,11 +2330,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.subAccountTransfer({
-     *   subAccountUser: "0x...",
-     *   isDeposit: true,
-     *   usd: 1 * 1e6,
-     * });
+     * await exchClient.subAccountTransfer({ subAccountUser: "0x...", isDeposit: true, usd: 1 * 1e6 });
      * ```
      */
     async subAccountTransfer(args: SubAccountTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2248,24 +2339,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: SubAccountTransferRequest["action"] = {
-            type: "subAccountTransfer",
-            ...actionArgs,
-        };
+        const action = actionSorter.subAccountTransfer({ type: "subAccountTransfer", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies SubAccountTransferRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2273,7 +2364,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#delegate-or-undelegate-stake-from-validator
      * @example
@@ -2284,11 +2377,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.tokenDelegate({
-     *   validator: "0x...",
-     *   isUndelegate: true,
-     *   wei: 1 * 1e8,
-     * });
+     * await exchClient.tokenDelegate({ validator: "0x...", isUndelegate: true, wei: 1 * 1e8 });
      * ```
      */
     async tokenDelegate(args: TokenDelegateParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2297,27 +2386,29 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: TokenDelegateRequest["action"] = {
-            ...actionArgs,
+        const action = actionSorter.tokenDelegate({
             type: "tokenDelegate",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies TokenDelegateRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2325,7 +2416,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful variant of {@link TwapCancelResponse} without error status.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#cancel-a-twap-order
      * @example
@@ -2336,10 +2429,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.twapCancel({
-     *   a: 0, // Asset index
-     *   t: 1, // TWAP ID
-     * });
+     * const data = await exchClient.twapCancel({ a: 0, t: 1 });
      * ```
      */
     async twapCancel(args: TwapCancelParameters, signal?: AbortSignal): Promise<TwapCancelResponseSuccess> {
@@ -2368,15 +2458,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: TwapCancelRequest["action"] = {
-            type: "twapCancel",
-            ...convertedActionArgs,
-        };
+        const action = actionSorter.twapCancel({ type: "twapCancel", ...convertedActionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -2384,10 +2471,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies TwapCancelRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as TwapCancelResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2395,7 +2485,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful variant of {@link TwapOrderResponse} without error status.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#place-a-twap-order
      * @example
@@ -2407,12 +2499,12 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
      * const data = await exchClient.twapOrder({
-     *   a: 0, // Asset index
-     *   b: true, // Buy order
-     *   s: "1", // Size
-     *   r: false, // Not reduce-only
-     *   m: 10, // Duration in minutes
-     *   t: true, // Randomize order timing
+     *   a: 0,
+     *   b: true,
+     *   s: "1",
+     *   r: false,
+     *   m: 10,
+     *   t: true,
      * });
      * ```
      */
@@ -2436,17 +2528,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: TwapOrderRequest["action"] = {
-            type: "twapOrder",
-            twap: {
-                ...convertedActionArgs,
-            },
-        };
+        const action = actionSorter.twapOrder({ type: "twapOrder", twap: { ...convertedActionArgs } });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -2454,10 +2541,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies TwapOrderRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as TwapOrderResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2465,7 +2555,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-isolated-margin
      * @example
@@ -2476,11 +2568,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.updateIsolatedMargin({
-     *   asset: 0,
-     *   isBuy: true,
-     *   ntli: 1 * 1e6,
-     * });
+     * await exchClient.updateIsolatedMargin({ asset: 0, isBuy: true, ntli: 1 * 1e6 });
      * ```
      */
     async updateIsolatedMargin(args: UpdateIsolatedMarginParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2503,15 +2591,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: UpdateIsolatedMarginRequest["action"] = {
-            type: "updateIsolatedMargin",
-            ...convertedActionArgs,
-        };
+        const action = actionSorter.updateIsolatedMargin({ type: "updateIsolatedMargin", ...convertedActionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -2519,10 +2604,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies UpdateIsolatedMarginRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2530,7 +2618,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#update-leverage
      * @example
@@ -2541,11 +2631,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.updateLeverage({
-     *   asset: 0,
-     *   isCross: true,
-     *   leverage: 5,
-     * });
+     * await exchClient.updateLeverage({ asset: 0, isCross: true, leverage: 5 });
      * ```
      */
     async updateLeverage(args: UpdateLeverageParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2568,15 +2654,12 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: UpdateLeverageRequest["action"] = {
-            type: "updateLeverage",
-            ...convertedActionArgs,
-        };
+        const action = actionSorter.updateLeverage({ type: "updateLeverage", ...convertedActionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             vaultAddress,
@@ -2584,10 +2667,13 @@ export class ExchangeClient<
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies UpdateLeverageRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2595,7 +2681,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#transfer-from-spot-account-to-perp-account-and-vice-versa
      * @example
@@ -2606,7 +2694,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.usdClassTransfer({ amount: "1", toPerp: true });
+     * await exchClient.usdClassTransfer({ amount: "1", toPerp: true });
      * ```
      */
     async usdClassTransfer(args: UsdClassTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2615,27 +2703,29 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: UsdClassTransferRequest["action"] = {
-            ...actionArgs,
+        const action = actionSorter.usdClassTransfer({
             type: "usdClassTransfer",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies UsdClassTransferRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2643,7 +2733,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#core-usdc-transfer
      * @example
@@ -2654,7 +2746,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.usdSend({ destination: "0x...", amount: "1" });
+     * await exchClient.usdSend({ destination: "0x...", amount: "1" });
      * ```
      */
     async usdSend(args: UsdSendParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2663,27 +2755,29 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: UsdSendRequest["action"] = {
-            ...actionArgs,
+        const action = actionSorter.usdSend({
             type: "usdSend",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             time: nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies UsdSendRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2691,9 +2785,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -2702,7 +2798,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.vaultDistribute({ vaultAddress: "0x...", usd: 10 * 1e6 });
+     * await exchClient.vaultDistribute({ vaultAddress: "0x...", usd: 10 * 1e6 });
      * ```
      */
     async vaultDistribute(args: VaultDistributeParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2711,24 +2807,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: VaultDistributeRequest["action"] = {
-            type: "vaultDistribute",
-            ...actionArgs,
-        };
+        const action = actionSorter.vaultDistribute({ type: "vaultDistribute", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies VaultDistributeRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2736,9 +2832,11 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
      *
-     * @see null - no documentation
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -2747,7 +2845,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.vaultModify({
+     * await exchClient.vaultModify({
      *   vaultAddress: "0x...",
      *   allowDeposits: true,
      *   alwaysCloseOnWithdraw: false,
@@ -2760,24 +2858,24 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: VaultModifyRequest["action"] = {
-            type: "vaultModify",
-            ...actionArgs,
-        };
+        const action = actionSorter.vaultModify({ type: "vaultModify", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies VaultModifyRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2785,7 +2883,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#deposit-or-withdraw-from-a-vault
      * @example
@@ -2796,11 +2896,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.vaultTransfer({
-     *   vaultAddress: "0x...",
-     *   isDeposit: true,
-     *   usd: 10 * 1e6,
-     * });
+     * await exchClient.vaultTransfer({ vaultAddress: "0x...", isDeposit: true, usd: 10 * 1e6 });
      * ```
      */
     async vaultTransfer(args: VaultTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2812,25 +2908,25 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: VaultTransferRequest["action"] = {
-            type: "vaultTransfer",
-            ...actionArgs,
-        };
+        const action = actionSorter.vaultTransfer({ type: "vaultTransfer", ...actionArgs });
 
         // Sign the action
         const signature = await signL1Action({
             wallet: this.wallet,
-            action: actionSorter[action.type](action),
+            action,
             nonce,
             isTestnet: this.isTestnet,
             expiresAfter,
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce, expiresAfter } satisfies VaultTransferRequest,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce, expiresAfter },
             signal,
-        );
+        ) as SuccessResponse | ErrorResponse;
+        this._validateResponse(response);
+        return response;
     }
 
     /**
@@ -2838,7 +2934,9 @@ export class ExchangeClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Successful response without specific data.
-     * @throws {ApiRequestError} When the API returns an error response.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#initiate-a-withdrawal-request
      * @example
@@ -2849,7 +2947,7 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.withdraw3({ destination: "0x...", amount: "1" });
+     * await exchClient.withdraw3({ destination: "0x...", amount: "1" });
      * ```
      */
     async withdraw3(args: Withdraw3Parameters, signal?: AbortSignal): Promise<SuccessResponse> {
@@ -2858,52 +2956,29 @@ export class ExchangeClient<
 
         // Construct an action
         const nonce = await this.nonceManager();
-        const action: Withdraw3Request["action"] = {
-            ...actionArgs,
+        const action = actionSorter.withdraw3({
             type: "withdraw3",
             hyperliquidChain: this._getHyperliquidChain(),
             signatureChainId: await this._getSignatureChainId(),
             time: nonce,
-        };
+            ...actionArgs,
+        });
 
         // Sign the action
         const signature = await signUserSignedAction({
             wallet: this.wallet,
             action,
             types: userSignedActionEip712Types[action.type],
-            chainId: parseInt(action.signatureChainId, 16),
         });
 
         // Send a request
-        return await this._request(
-            { action, signature, nonce } satisfies Withdraw3Request,
+        const response = await this.transport.request(
+            "exchange",
+            { action, signature, nonce },
             signal,
-        );
-    }
-
-    /** Send an API request and validate the response. */
-    protected async _request<
-        T extends
-            | SuccessResponse
-            | CancelResponseSuccess
-            | CreateSubAccountResponse
-            | CreateVaultResponse
-            | OrderResponseSuccess
-            | TwapOrderResponseSuccess
-            | TwapCancelResponseSuccess,
-    >(payload: BaseExchangeRequest, signal?: AbortSignal): Promise<T> {
-        const response = await this.transport.request<
-            | SuccessResponse
-            | ErrorResponse
-            | CancelResponse
-            | CreateSubAccountResponse
-            | CreateVaultResponse
-            | OrderResponse
-            | TwapOrderResponse
-            | TwapCancelResponse
-        >("exchange", payload, signal);
+        ) as SuccessResponse | ErrorResponse;
         this._validateResponse(response);
-        return response as T;
+        return response;
     }
 
     /** Guesses the chain ID based on the wallet type or the isTestnet flag. */

@@ -28,6 +28,7 @@ import type {
     AllMids,
     Candle,
     FundingHistory,
+    MarginTable,
     PerpDex,
     PerpsMeta,
     PerpsMetaAndAssetCtxs,
@@ -42,8 +43,8 @@ import type {
     DelegatorSummary,
     DelegatorUpdate,
     ValidatorSummary,
-} from "../types/info/delegations.ts";
-import type { DeployAuctionStatus, SpotDeployState } from "../types/info/markets.ts";
+} from "../types/info/validators.ts";
+import type { DeployAuctionStatus, ExchangeStatus, SpotDeployState } from "../types/info/markets.ts";
 import type {
     Book,
     Fill,
@@ -62,14 +63,19 @@ import type {
     DelegatorHistoryRequest,
     DelegatorRewardsRequest,
     DelegatorSummaryRequest,
+    ExchangeStatusRequest,
     ExtraAgentsRequest,
     FrontendOpenOrdersRequest,
     FundingHistoryRequest,
     HistoricalOrdersRequest,
     IsVipRequest,
     L2BookRequest,
+    LeadingVaultsRequest,
     LegalCheckRequest,
+    LiquidatableRequest,
+    MarginTableRequest,
     MaxBuilderFeeRequest,
+    MaxMarketOrderNtlsRequest,
     MetaAndAssetCtxsRequest,
     MetaRequest,
     OpenOrdersRequest,
@@ -99,13 +105,12 @@ import type {
     UserTwapSliceFillsByTimeRequest,
     UserTwapSliceFillsRequest,
     UserVaultEquitiesRequest,
+    ValidatorL1VotesRequest,
     ValidatorSummariesRequest,
     VaultDetailsRequest,
     VaultSummariesRequest,
 } from "../types/info/requests.ts";
-import type { VaultDetails, VaultEquity, VaultSummary } from "../types/info/vaults.ts";
-import { Hex } from "../base.ts";
-
+import type { VaultDetails, VaultEquity, VaultLeading, VaultSummary } from "../types/info/vaults.ts";
 /** Parameters for the {@linkcode InfoClient} constructor. */
 export interface InfoClientParameters<T extends IRequestTransport = IRequestTransport> {
     /** The transport used to connect to the Hyperliquid API. */
@@ -118,6 +123,9 @@ export interface InfoClientParameters<T extends IRequestTransport = IRequestTran
 
 /** Parameters for the {@linkcode InfoClient.allMids} method. */
 export type AllMidsParameters = Omit<AllMidsRequest, "type">;
+
+/** Parameters for the {@linkcode InfoClient.blockDetails} method. */
+export type BlockDetailsParameters = Omit<BlockDetailsRequest, "type">;
 
 /** Parameters for the {@linkcode InfoClient.candleSnapshot} method. */
 export type CandleSnapshotParameters = CandleSnapshotRequest["req"];
@@ -155,8 +163,14 @@ export type IsVipParameters = Omit<IsVipRequest, "type">;
 /** Parameters for the {@linkcode InfoClient.l2Book} method. */
 export type L2BookParameters = Omit<L2BookRequest, "type">;
 
+/** Parameters for the {@linkcode InfoClient.leadingVaults} method. */
+export type LeadingVaultsParameters = Omit<LeadingVaultsRequest, "type">;
+
 /** Parameters for the {@linkcode InfoClient.legalCheck} method. */
 export type LegalCheckParameters = Omit<LegalCheckRequest, "type">;
+
+/** Parameters for the {@linkcode InfoClient.marginTable} method. */
+export type MarginTableParameters = Omit<MarginTableRequest, "type">;
 
 /** Parameters for the {@linkcode InfoClient.maxBuilderFee} method. */
 export type MaxBuilderFeeParameters = Omit<MaxBuilderFeeRequest, "type">;
@@ -169,12 +183,6 @@ export type OpenOrdersParameters = Omit<OpenOrdersRequest, "type">;
 
 /** Parameters for the {@linkcode InfoClient.orderStatus} method. */
 export type OrderStatusParameters = Omit<OrderStatusRequest, "type">;
-
-/** Parameters for the {@linkcode InfoClient.perpDeployAuctionStatus} method. */
-export type PerpDeployAuctionStatusParameters = Omit<PerpDeployAuctionStatusRequest, "type">;
-
-/** Parameters for the {@linkcode InfoClient.perpDexs} method. */
-export type PerpDexsParameters = Omit<PerpDexsRequest, "type">;
 
 /** Parameters for the {@linkcode InfoClient.portfolio} method. */
 export type PortfolioParameters = Omit<PortfolioRequest, "type">;
@@ -199,6 +207,12 @@ export type TokenDetailsParameters = Omit<TokenDetailsRequest, "type">;
 
 /** Parameters for the {@linkcode InfoClient.twapHistory} method. */
 export type TwapHistoryParameters = Omit<TwapHistoryRequest, "type">;
+
+/** Parameters for the {@linkcode InfoClient.txDetails} method. */
+export type TxDetailsParameters = Omit<TxDetailsRequest, "type">;
+
+/** Parameters for the {@linkcode InfoClient.userDetails} method. */
+export type UserDetailsParameters = Omit<UserDetailsRequest, "type">;
 
 /** Parameters for the {@linkcode InfoClient.userFees} method. */
 export type UserFeesParameters = Omit<UserFeesRequest, "type">;
@@ -236,15 +250,6 @@ export type UserVaultEquitiesParameters = Omit<UserVaultEquitiesRequest, "type">
 /** Parameters for the {@linkcode InfoClient.vaultDetails} method. */
 export type VaultDetailsParameters = Omit<VaultDetailsRequest, "type">;
 
-/** Parameters for the {@linkcode InfoClient.blockDetails} method. */
-export type BlockDetailsParameters = Omit<BlockDetailsRequest, "type">;
-
-/** Parameters for the {@linkcode InfoClient.txDetails} method. */
-export type TxDetailsParameters = Omit<TxDetailsRequest, "type">;
-
-/** Parameters for the {@linkcode InfoClient.userDetails} method. */
-export type UserDetailsParameters = Omit<UserDetailsRequest, "type">;
-
 /**
  * Info client for interacting with the Hyperliquid API.
  * @typeParam T The type of transport used to connect to the Hyperliquid API.
@@ -279,8 +284,11 @@ export class InfoClient<
 
     /**
      * Request mid coin prices.
+     * @param args - An optional parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns Mid coin prices.
+     * @returns Mapping of coin symbols to mid prices.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-mids-for-all-coins
      * @example
@@ -323,9 +331,11 @@ export class InfoClient<
      * Block details by block height.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns Block details response.
+     * @returns Block details.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -350,6 +360,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of candlestick data points.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#candle-snapshot
      * @example
@@ -387,6 +399,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Account summary for perpetual trading.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-users-perpetuals-account-summary
      * @example
      * ```ts
@@ -415,6 +429,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Array of user's delegations to validators.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-delegations
      * @example
      * ```ts
@@ -439,6 +455,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of user's staking updates.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-history
      * @example
@@ -465,6 +483,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Array of user's staking rewards.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-rewards
      * @example
      * ```ts
@@ -490,6 +510,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Summary of a user's staking delegations.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-summary
      * @example
      * ```ts
@@ -510,12 +532,39 @@ export class InfoClient<
     }
 
     /**
+     * Request exchange status information.
+     * @param signal - An optional abort signal.
+     * @returns Exchange system status information.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-summary
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const infoClient = new hl.InfoClient({ transport });
+     *
+     * const data = await infoClient.exchangeStatus();
+     * ```
+     */
+    exchangeStatus(signal?: AbortSignal): Promise<ExchangeStatus> {
+        const request: ExchangeStatusRequest = {
+            type: "exchangeStatus",
+        };
+        return this.transport.request("info", request, signal);
+    }
+
+    /**
      * Request user's extra agents.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns User's extra agents.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -539,6 +588,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of open orders with additional frontend information.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-open-orders-with-additional-frontend-info
      * @example
@@ -567,6 +618,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of historical funding rate data for an asset.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-historical-funding-rates
      * @example
@@ -600,6 +653,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Array of user's historical orders.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-historical-orders
      * @example
      * ```ts
@@ -628,7 +683,9 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Boolean indicating user's VIP status.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -652,6 +709,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns L2 order book snapshot.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#l2-book-snapshot
      * @example
@@ -677,12 +736,71 @@ export class InfoClient<
     }
 
     /**
+     * Request leading vaults for a user.
+     * @param args - The parameters for the request.
+     * @param signal - An optional abort signal.
+     * @returns
+     *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const infoClient = new hl.InfoClient({ transport });
+     *
+     * const data = await infoClient.leadingVaults({ user: "0x..." });
+     * ```
+     */
+    leadingVaults(args: LeadingVaultsParameters, signal?: AbortSignal): Promise<VaultLeading[]> {
+        const request: LeadingVaultsRequest = {
+            type: "leadingVaults",
+            ...args,
+        };
+        const response = await this.transport.request<Book>("info", request, signal)
+        return this.hasSymbolConversion
+          ? await this.symbolConversion!.convertResponse(response)
+          : response;
+    }
+
+    /**
+     * Request leading vaults for a user.
+     * @param args - The parameters for the request.
+     * @param signal - An optional abort signal.
+     * @returns
+     *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const infoClient = new hl.InfoClient({ transport });
+     *
+     * const data = await infoClient.leadingVaults({ user: "0x..." });
+     * ```
+     */
+    leadingVaults(args: LeadingVaultsParameters, signal?: AbortSignal): Promise<VaultLeading[]> {
+        const request: LeadingVaultsRequest = {
+            type: "leadingVaults",
+            ...args,
+        };
+        return this.transport.request("info", request, signal);
+    }
+
+    /**
      * Request legal verification status of a user.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Legal verification status for a user.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -702,10 +820,64 @@ export class InfoClient<
     }
 
     /**
+     * Request liquidatable (unknown).
+     * @param signal - An optional abort signal.
+     * @returns
+     *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-summary
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const infoClient = new hl.InfoClient({ transport });
+     *
+     * const data = await infoClient.liquidatable();
+     * ```
+     */
+    liquidatable(signal?: AbortSignal): Promise<unknown[]> {
+        const request: LiquidatableRequest = {
+            type: "liquidatable",
+        };
+        return this.transport.request("info", request, signal);
+    }
+
+    /**
+     * Request margin table data.
+     * @param args - The parameters for the request.
+     * @param signal - An optional abort signal.
+     * @returns Margin requirements table with multiple tiers.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-summary
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const infoClient = new hl.InfoClient({ transport });
+     *
+     * const data = await infoClient.marginTable({ id: 1 });
+     * ```
+     */
+    marginTable(args: MarginTableParameters, signal?: AbortSignal): Promise<MarginTable> {
+        const request: MarginTableRequest = {
+            type: "marginTable",
+            ...args,
+        };
+        return this.transport.request("info", request, signal);
+    }
+
+    /**
      * Request builder fee approval.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Maximum builder fee approval.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#check-builder-fee-approval
      * @example
@@ -727,11 +899,39 @@ export class InfoClient<
     }
 
     /**
+     * Request maximum market order notionals.
+     * @param signal - An optional abort signal.
+     * @returns
+     *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-summary
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const infoClient = new hl.InfoClient({ transport });
+     *
+     * const data = await infoClient.maxMarketOrderNtls();
+     * ```
+     */
+    maxMarketOrderNtls(signal?: AbortSignal): Promise<[number, string][]> {
+        const request: MaxMarketOrderNtlsRequest = {
+            type: "maxMarketOrderNtls",
+        };
+        return this.transport.request("info", request, signal);
+    }
+
+    /**
      * Request trading metadata.
+     * @param args - An optional parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Metadata for perpetual assets.
      *
-     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-perpetuals-metadata
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-perpetuals-metadata-universe-and-margin-tables
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -764,7 +964,9 @@ export class InfoClient<
     /**
      * Request metadata and asset contexts.
      * @param signal - An optional abort signal.
-     * @returns Metadata and context information for each perpetual asset.
+     * @returns Metadata and context for perpetual assets.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-perpetuals-asset-contexts-includes-mark-price-current-funding-open-interest-etc
      * @example
@@ -794,6 +996,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Array of open order.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-open-orders
      * @example
      * ```ts
@@ -822,6 +1026,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Result of an order status lookup.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-order-status-by-oid-or-cloid
      * @example
      * ```ts
@@ -849,6 +1055,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Status of the perpetual deploy auction.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-information-about-the-perp-deploy-auction
      * @example
      * ```ts
@@ -870,7 +1078,9 @@ export class InfoClient<
     /**
      * Request all perpetual dexs.
      * @param signal - An optional abort signal.
-     * @returns Array of perpetual dexes.
+     * @returns Array of perpetual dexes (null is main dex).
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-all-perpetual-dexs
      * @example
@@ -892,9 +1102,10 @@ export class InfoClient<
 
     /**
      * Request perpetuals at open interest cap.
-     * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of perpetuals at open interest caps.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#query-perps-at-open-interest-caps
      * @example
@@ -918,10 +1129,12 @@ export class InfoClient<
     }
 
     /**
-     * Request portfolio.
+     * Request user portfolio.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns Portfolio of a user.
+     * @returns Portfolio metrics grouped by time periods.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-portfolio
      * @example
@@ -946,6 +1159,8 @@ export class InfoClient<
      * Request predicted funding rates.
      * @param signal - An optional abort signal.
      * @returns Array of predicted funding rates.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-predicted-funding-rates-for-different-venues
      * @example
@@ -974,7 +1189,9 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Pre-transfer user existence check result.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -999,6 +1216,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Referral information for a user.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-referral-information
      * @example
      * ```ts
@@ -1022,7 +1241,9 @@ export class InfoClient<
      * Request spot clearinghouse state.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns Balances for spot tokens.
+     * @returns Account summary for spot trading.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot#retrieve-a-users-token-balances
      * @example
@@ -1050,7 +1271,9 @@ export class InfoClient<
      * Request spot deploy state.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns The deploy state of a user.
+     * @returns Deploy state for spot tokens.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot#retrieve-information-about-the-spot-deploy-auction
      * @example
@@ -1079,6 +1302,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Metadata for spot assets.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot#retrieve-spot-metadata
      * @example
      * ```ts
@@ -1104,7 +1329,9 @@ export class InfoClient<
     /**
      * Request spot metadata and asset contexts.
      * @param signal - An optional abort signal.
-     * @returns Metadata and context information for each spot asset.
+     * @returns Metadata and context for spot assets.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot#retrieve-spot-asset-contexts
      * @example
@@ -1134,6 +1361,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Array of user sub-account or null if the user does not have any sub-accounts.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-subaccounts
      * @example
      * ```ts
@@ -1157,7 +1386,9 @@ export class InfoClient<
      * Request token details.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns The details of a token.
+     * @returns Details of a token.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot#retrieve-information-about-a-token
      * @example
@@ -1183,9 +1414,11 @@ export class InfoClient<
      * Request twap history of a user.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns The twap history of a user.
+     * @returns Array of user's TWAP history.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1208,12 +1441,14 @@ export class InfoClient<
     }
 
     /**
-     * Transaction details by transaction hash.
+     * Request transaction details by transaction hash.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns Transaction details response.
+     * @returns Transaction details.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1234,12 +1469,14 @@ export class InfoClient<
     }
 
     /**
-     * User details by user's address.
+     * Request user details by user's address.
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
-     * @returns User details response.
+     * @returns User details.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1265,7 +1502,9 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns User fees.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-fees
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1289,6 +1528,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of user's trade fill.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-fills
      * @example
@@ -1317,6 +1558,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of user's trade fill.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-fills-by-time
      * @example
@@ -1349,6 +1592,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Array of user's funding ledger update.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-a-users-funding-history-or-non-funding-ledger-updates
      * @example
      * ```ts
@@ -1379,6 +1624,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of user's non-funding ledger update.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-a-users-funding-history-or-non-funding-ledger-updates
      * @example
@@ -1411,6 +1658,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns User's rate limits.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-user-rate-limits
      * @example
      * ```ts
@@ -1435,6 +1684,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns User's role.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-role
      * @example
@@ -1461,7 +1712,9 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Multi-sig signers for a user or null if the user does not have any multi-sig signers.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1488,6 +1741,8 @@ export class InfoClient<
      * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of user's twap slice fill.
+     *
+     * @throws {TransportError} When the transport layer throws an error.
      *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-twap-slice-fills
      * @example
@@ -1517,7 +1772,9 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Array of user's twap slice fill.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1548,6 +1805,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Array of user's vault deposits.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-vault-deposits
      * @example
      * ```ts
@@ -1556,7 +1815,7 @@ export class InfoClient<
      * const transport = new hl.HttpTransport(); // or WebSocketTransport
      * const infoClient = new hl.InfoClient({ transport });
      *
-     * const data = await infoClient.userVaultDeposits({ user: "0x..." });
+     * const data = await infoClient.userVaultEquities({ user: "0x..." });
      * ```
      */
     userVaultEquities(args: UserVaultEquitiesParameters, signal?: AbortSignal): Promise<VaultEquity[]> {
@@ -1568,11 +1827,38 @@ export class InfoClient<
     }
 
     /**
+     * Request validator L1 votes.
+     * @param signal - An optional abort signal.
+     * @returns
+     *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#query-a-users-staking-summary
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const transport = new hl.HttpTransport(); // or WebSocketTransport
+     * const infoClient = new hl.InfoClient({ transport });
+     *
+     * const data = await infoClient.validatorL1Votes();
+     * ```
+     */
+    validatorL1Votes(signal?: AbortSignal): Promise<unknown[]> {
+        const request: ValidatorL1VotesRequest = {
+            type: "validatorL1Votes",
+        };
+        return this.transport.request("info", request, signal);
+    }
+
+    /**
      * Request validator summaries.
-     * @param args - The parameters for the request.
+     * @param signal - An optional abort signal.
      * @returns Array of validator summaries.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
@@ -1596,6 +1882,8 @@ export class InfoClient<
      * @param signal - An optional abort signal.
      * @returns Details of a vault or null if the vault does not exist.
      *
+     * @throws {TransportError} When the transport layer throws an error.
+     *
      * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-details-for-a-vault
      * @example
      * ```ts
@@ -1617,11 +1905,12 @@ export class InfoClient<
 
     /**
      * Request a list of vaults less than 2 hours old.
-     * @param args - The parameters for the request.
      * @param signal - An optional abort signal.
      * @returns Array of vault summaries.
      *
-     * @see null - no documentation
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
      * @example
      * ```ts
      * import * as hl from "@nktkas/hyperliquid";
