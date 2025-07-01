@@ -1,4 +1,4 @@
-import type { DeepImmutable, Hex } from "../base.ts";
+import type { Hex } from "../base.ts";
 import type {
     ApproveAgentRequest,
     ApproveBuilderFeeRequest,
@@ -37,6 +37,7 @@ import type {
     SpotDeployRequest_UserGenesis,
     SpotSendRequest,
     SpotUserRequest,
+    SubAccountModifyRequest,
     SubAccountSpotTransferRequest,
     SubAccountTransferRequest,
     TokenDelegateRequest,
@@ -51,6 +52,11 @@ import type {
     VaultTransferRequest,
     Withdraw3Request,
 } from "../types/exchange/requests.ts";
+
+// https://github.com/microsoft/TypeScript/issues/13923#issuecomment-2191862501
+type DeepImmutable<T> = {
+    readonly [K in keyof T]: DeepImmutable<T[K]>;
+};
 
 /** Action sorter and formatter for correct signature generation. */
 export const actionSorter = {
@@ -542,6 +548,13 @@ export const actionSorter = {
             toggleSpotDusting: {
                 optOut: action.toggleSpotDusting.optOut,
             },
+        };
+    },
+    subAccountModify: (action: DeepImmutable<SubAccountModifyRequest["action"]>): SubAccountModifyRequest["action"] => {
+        return {
+            type: action.type,
+            subAccountUser: action.subAccountUser.toLowerCase() as Hex,
+            name: action.name,
         };
     },
     subAccountSpotTransfer: (

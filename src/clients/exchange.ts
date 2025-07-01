@@ -1,8 +1,9 @@
-import { type DeepImmutable, type Hex, HyperliquidError, type MaybePromise } from "../base.ts";
+import { type Hex, HyperliquidError, type MaybePromise } from "../base.ts";
 import type { IRequestTransport } from "../transports/base.ts";
 import type {
     ApproveAgentRequest,
     ApproveBuilderFeeRequest,
+    BaseExchangeRequest,
     BatchModifyRequest,
     CancelByCloidRequest,
     CancelRequest,
@@ -37,6 +38,7 @@ import type {
     SpotDeployRequest_UserGenesis,
     SpotSendRequest,
     SpotUserRequest,
+    SubAccountModifyRequest,
     SubAccountSpotTransferRequest,
     SubAccountTransferRequest,
     TokenDelegateRequest,
@@ -68,6 +70,7 @@ import {
     isAbstractEthersV5Signer,
     isAbstractViemWalletClient,
     isAbstractWindowEthereum,
+    type Signature,
     signL1Action,
     signMultiSigAction,
     signUserSignedAction,
@@ -108,332 +111,175 @@ export interface ExchangeClientParameters<
     nonceManager?: () => MaybePromise<number>;
 }
 
+type ExtractRequestParameters<T extends BaseExchangeRequest> =
+    & (T["action"] extends { signatureChainId: unknown }
+        ? Omit<T["action"], "type" | "signatureChainId" | "hyperliquidChain" | "nonce" | "time"> // user-signed actions
+        : Omit<T["action"], "type">) // L1 actions
+    // deno-lint-ignore ban-types
+    & (T["vaultAddress"] extends undefined ? {} : Pick<T, "vaultAddress">)
+    // deno-lint-ignore ban-types
+    & (T["expiresAfter"] extends undefined ? {} : Pick<T, "expiresAfter">);
+
 /** Parameters for the {@linkcode ExchangeClient.approveAgent} method. */
-export type ApproveAgentParameters = Omit<
-    ApproveAgentRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
->;
+export type ApproveAgentParameters = ExtractRequestParameters<ApproveAgentRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.approveBuilderFee} method. */
-export type ApproveBuilderFeeParameters = Omit<
-    ApproveBuilderFeeRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
->;
+export type ApproveBuilderFeeParameters = ExtractRequestParameters<ApproveBuilderFeeRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.batchModify} method. */
-export type BatchModifyParameters =
-    & Omit<BatchModifyRequest["action"], "type">
-    & Partial<Pick<BatchModifyRequest, "vaultAddress">>
-    & Partial<Pick<BatchModifyRequest, "expiresAfter">>;
+export type BatchModifyParameters = ExtractRequestParameters<BatchModifyRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.cancel} method. */
-export type CancelParameters =
-    & Omit<CancelRequest["action"], "type">
-    & Partial<Pick<CancelRequest, "vaultAddress">>
-    & Partial<Pick<CancelRequest, "expiresAfter">>;
+export type CancelParameters = ExtractRequestParameters<CancelRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.cancelByCloid} method. */
-export type CancelByCloidParameters =
-    & Omit<CancelByCloidRequest["action"], "type">
-    & Partial<Pick<CancelByCloidRequest, "vaultAddress">>
-    & Partial<Pick<CancelByCloidRequest, "expiresAfter">>;
+export type CancelByCloidParameters = ExtractRequestParameters<CancelByCloidRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.cDeposit} method. */
-export type CDepositParameters = Omit<
-    CDepositRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
->;
+export type CDepositParameters = ExtractRequestParameters<CDepositRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.convertToMultiSigUser} method. */
-export type ConvertToMultiSigUserParameters = ConvertToMultiSigUserRequest_Signers;
+export type ConvertToMultiSigUserParameters = ConvertToMultiSigUserRequest_Signers; // Special case: more convenient to work with an object than with a string
 
 /** Parameters for the {@linkcode ExchangeClient.createSubAccount} method. */
-export type CreateSubAccountParameters = Omit<
-    CreateSubAccountRequest["action"],
-    "type"
->;
+export type CreateSubAccountParameters = ExtractRequestParameters<CreateSubAccountRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.createVault} method. */
-export type CreateVaultParameters = Omit<
-    CreateVaultRequest["action"],
-    "type" | "nonce"
->;
+export type CreateVaultParameters = ExtractRequestParameters<CreateVaultRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.cSignerAction} method. */
 export type CSignerActionParameters =
-    | CSignerActionParameters_JailSelf
-    | CSignerActionParameters_UnjailSelf;
-/** One of the parameters for the {@linkcode ExchangeClient.cSignerAction} method. */
-export type CSignerActionParameters_JailSelf =
-    & Omit<CSignerActionRequest_JailSelf["action"], "type">
-    & Partial<Pick<CSignerActionRequest_JailSelf, "expiresAfter">>;
-/** One of the parameters for the {@linkcode ExchangeClient.cSignerAction} method. */
-export type CSignerActionParameters_UnjailSelf =
-    & Omit<CSignerActionRequest_UnjailSelf["action"], "type">
-    & Partial<Pick<CSignerActionRequest_UnjailSelf, "expiresAfter">>;
+    | ExtractRequestParameters<CSignerActionRequest_JailSelf>
+    | ExtractRequestParameters<CSignerActionRequest_UnjailSelf>;
 
 /** Parameters for the {@linkcode ExchangeClient.cValidatorAction} method. */
 export type CValidatorActionParameters =
-    | CValidatorActionParameters_ChangeProfile
-    | CValidatorActionParameters_Register
-    | CValidatorActionParameters_Unregister;
-/** One of the parameters for the {@linkcode ExchangeClient.cValidatorAction} method. */
-export type CValidatorActionParameters_ChangeProfile =
-    & Omit<CValidatorActionRequest_ChangeProfile["action"], "type">
-    & Partial<Pick<CValidatorActionRequest_ChangeProfile, "expiresAfter">>;
-/** One of the parameters for the {@linkcode ExchangeClient.cValidatorAction} method. */
-export type CValidatorActionParameters_Register =
-    & Omit<CValidatorActionRequest_Register["action"], "type">
-    & Partial<Pick<CValidatorActionRequest_Register, "expiresAfter">>;
-/** One of the parameters for the {@linkcode ExchangeClient.cValidatorAction} method. */
-export type CValidatorActionParameters_Unregister =
-    & Omit<CValidatorActionRequest_Unregister["action"], "type">
-    & Partial<Pick<CValidatorActionRequest_Unregister, "expiresAfter">>;
+    | ExtractRequestParameters<CValidatorActionRequest_ChangeProfile>
+    | ExtractRequestParameters<CValidatorActionRequest_Register>
+    | ExtractRequestParameters<CValidatorActionRequest_Unregister>;
 
 /** Parameters for the {@linkcode ExchangeClient.cWithdraw} method. */
-export type CWithdrawParameters = Omit<
-    CWithdrawRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
->;
+export type CWithdrawParameters = ExtractRequestParameters<CWithdrawRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.evmUserModify} method. */
-export type EvmUserModifyParameters = Omit<
-    EvmUserModifyRequest["action"],
-    "type"
->;
+export type EvmUserModifyParameters = ExtractRequestParameters<EvmUserModifyRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.modify} method. */
-export type ModifyParameters =
-    & Omit<ModifyRequest["action"], "type">
-    & Partial<Pick<ModifyRequest, "vaultAddress">>
-    & Partial<Pick<ModifyRequest, "expiresAfter">>;
+export type ModifyParameters = ExtractRequestParameters<ModifyRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.multiSig} method. */
 export type MultiSigParameters =
-    & Omit<MultiSigRequest["action"], "type" | "signatureChainId">
-    & Partial<Pick<MultiSigRequest, "vaultAddress">>
-    & Partial<Pick<MultiSigRequest, "expiresAfter">>
+    & ExtractRequestParameters<MultiSigRequest>
     & {
         /** Must be the same for all signers. */
-        nonce: number;
+        nonce: number; // Special case: nonce must be same for all signers
     };
 
 /** Parameters for the {@linkcode ExchangeClient.order} method. */
-export type OrderParameters =
-    & Omit<OrderRequest["action"], "type">
-    & Partial<Pick<OrderRequest, "vaultAddress">>
-    & Partial<Pick<OrderRequest, "expiresAfter">>;
+export type OrderParameters = ExtractRequestParameters<OrderRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.perpDeploy} method. */
 export type PerpDeployParameters =
-    | PerpDeployParameters_RegisterAsset
-    | PerpDeployParameters_SetOracle;
-/** One of the parameters for the {@linkcode ExchangeClient.perpDeploy} method. */
-export type PerpDeployParameters_RegisterAsset = Omit<PerpDeployRequest_RegisterAsset["action"], "type">;
-/** One of the parameters for the {@linkcode ExchangeClient.perpDeploy} method. */
-export type PerpDeployParameters_SetOracle = Omit<PerpDeployRequest_SetOracle["action"], "type">;
+    | ExtractRequestParameters<PerpDeployRequest_RegisterAsset>
+    | ExtractRequestParameters<PerpDeployRequest_SetOracle>;
 
 /** Parameters for the {@linkcode ExchangeClient.perpDexClassTransfer} method. */
-export type PerpDexClassTransferParameters = Omit<
-    PerpDexClassTransferRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
->;
+export type PerpDexClassTransferParameters = ExtractRequestParameters<PerpDexClassTransferRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.perpDexTransfer} method. */
-export type PerpDexTransferParameters = Omit<
-    PerpDexTransferRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
->;
+export type PerpDexTransferParameters = ExtractRequestParameters<PerpDexTransferRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.registerReferrer} method. */
-export type RegisterReferrerParameters = Omit<RegisterReferrerRequest["action"], "type">;
+export type RegisterReferrerParameters = ExtractRequestParameters<RegisterReferrerRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.reserveRequestWeight} method. */
-export type ReserveRequestWeightParameters =
-    & Omit<ReserveRequestWeightRequest["action"], "type">
-    & Partial<Pick<ReserveRequestWeightRequest, "expiresAfter">>;
+export type ReserveRequestWeightParameters = ExtractRequestParameters<ReserveRequestWeightRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.scheduleCancel} method. */
-export type ScheduleCancelParameters =
-    & Omit<ScheduleCancelRequest["action"], "type">
-    & Partial<Pick<ScheduleCancelRequest, "vaultAddress">>
-    & Partial<Pick<ScheduleCancelRequest, "expiresAfter">>;
+export type ScheduleCancelParameters = ExtractRequestParameters<ScheduleCancelRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.setDisplayName} method. */
-export type SetDisplayNameParameters = Omit<
-    SetDisplayNameRequest["action"],
-    "type"
->;
+export type SetDisplayNameParameters = ExtractRequestParameters<SetDisplayNameRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.setReferrer} method. */
-export type SetReferrerParameters = Omit<
-    SetReferrerRequest["action"],
-    "type"
->;
+export type SetReferrerParameters = ExtractRequestParameters<SetReferrerRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.spotDeploy} method. */
 export type SpotDeployParameters =
-    | SpotDeployParameters_Genesis
-    | SpotDeployParameters_RegisterHyperliquidity
-    | SpotDeployParameters_RegisterSpot
-    | SpotDeployParameters_RegisterToken2
-    | SpotDeployParameters_SetDeployerTradingFeeShare
-    | SpotDeployParameters_UserGenesis;
-/** One of the parameters for the {@linkcode ExchangeClient.spotDeploy} method. */
-export type SpotDeployParameters_Genesis = Omit<
-    SpotDeployRequest_Genesis["action"],
-    "type"
->;
-/** One of the parameters for the {@linkcode ExchangeClient.spotDeploy} method. */
-export type SpotDeployParameters_RegisterHyperliquidity = Omit<
-    SpotDeployRequest_RegisterHyperliquidity["action"],
-    "type"
->;
-/** One of the parameters for the {@linkcode ExchangeClient.spotDeploy} method. */
-export type SpotDeployParameters_RegisterSpot = Omit<
-    SpotDeployRequest_RegisterSpot["action"],
-    "type"
->;
-/** One of the parameters for the {@linkcode ExchangeClient.spotDeploy} method. */
-export type SpotDeployParameters_RegisterToken2 = Omit<
-    SpotDeployRequest_RegisterToken2["action"],
-    "type"
->;
-/** One of the parameters for the {@linkcode ExchangeClient.spotDeploy} method. */
-export type SpotDeployParameters_SetDeployerTradingFeeShare = Omit<
-    SpotDeployRequest_SetDeployerTradingFeeShare["action"],
-    "type"
->;
-/** One of the parameters for the {@linkcode ExchangeClient.spotDeploy} method. */
-export type SpotDeployParameters_UserGenesis = Omit<
-    SpotDeployRequest_UserGenesis["action"],
-    "type"
->;
+    | ExtractRequestParameters<SpotDeployRequest_Genesis>
+    | ExtractRequestParameters<SpotDeployRequest_RegisterHyperliquidity>
+    | ExtractRequestParameters<SpotDeployRequest_RegisterSpot>
+    | ExtractRequestParameters<SpotDeployRequest_RegisterToken2>
+    | ExtractRequestParameters<SpotDeployRequest_SetDeployerTradingFeeShare>
+    | ExtractRequestParameters<SpotDeployRequest_UserGenesis>;
 
 /** Parameters for the {@linkcode ExchangeClient.spotSend} method. */
-export type SpotSendParameters = Omit<
-    SpotSendRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "time"
->;
+export type SpotSendParameters = ExtractRequestParameters<SpotSendRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.spotUser} method. */
-export type SpotUserParameters = Omit<
-    SpotUserRequest["action"],
-    "type"
->;
+export type SpotUserParameters = ExtractRequestParameters<SpotUserRequest>;
+
+/** Parameters for the {@linkcode ExchangeClient.subAccountModify} method. */
+export type SubAccountModifyParameters = ExtractRequestParameters<SubAccountModifyRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.subAccountSpotTransfer} method. */
-export type SubAccountSpotTransferParameters = Omit<
-    SubAccountSpotTransferRequest["action"],
-    "type"
->;
+export type SubAccountSpotTransferParameters = ExtractRequestParameters<SubAccountSpotTransferRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.subAccountTransfer} method. */
-export type SubAccountTransferParameters = Omit<
-    SubAccountTransferRequest["action"],
-    "type"
->;
+export type SubAccountTransferParameters = ExtractRequestParameters<SubAccountTransferRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.tokenDelegate} method. */
-export type TokenDelegateParameters = Omit<
-    TokenDelegateRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
->;
+export type TokenDelegateParameters = ExtractRequestParameters<TokenDelegateRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.twapCancel} method. */
-export type TwapCancelParameters =
-    & Omit<TwapCancelRequest["action"], "type">
-    & Partial<Pick<TwapCancelRequest, "vaultAddress">>
-    & Partial<Pick<TwapCancelRequest, "expiresAfter">>;
+export type TwapCancelParameters = ExtractRequestParameters<TwapCancelRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.twapOrder} method. */
-export type TwapOrderParameters =
-    & TwapOrderRequest["action"]["twap"]
-    & Partial<Pick<TwapOrderRequest, "vaultAddress">>
-    & Partial<Pick<TwapOrderRequest, "expiresAfter">>;
+export type TwapOrderParameters = ExtractRequestParameters<TwapOrderRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.updateIsolatedMargin} method. */
-export type UpdateIsolatedMarginParameters =
-    & Omit<UpdateIsolatedMarginRequest["action"], "type">
-    & Partial<Pick<UpdateIsolatedMarginRequest, "vaultAddress">>
-    & Partial<Pick<UpdateIsolatedMarginRequest, "expiresAfter">>;
+export type UpdateIsolatedMarginParameters = ExtractRequestParameters<UpdateIsolatedMarginRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.updateLeverage} method. */
-export type UpdateLeverageParameters =
-    & Omit<UpdateLeverageRequest["action"], "type">
-    & Partial<Pick<UpdateLeverageRequest, "vaultAddress">>
-    & Partial<Pick<UpdateLeverageRequest, "expiresAfter">>;
+export type UpdateLeverageParameters = ExtractRequestParameters<UpdateLeverageRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.usdClassTransfer} method. */
-export type UsdClassTransferParameters = Omit<
-    UsdClassTransferRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "nonce"
->;
+export type UsdClassTransferParameters = ExtractRequestParameters<UsdClassTransferRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.usdSend} method. */
-export type UsdSendParameters = Omit<
-    UsdSendRequest["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "time"
->;
+export type UsdSendParameters = ExtractRequestParameters<UsdSendRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.vaultDistribute} method. */
-export type VaultDistributeParameters = Omit<
-    VaultDistributeRequest["action"],
-    "type"
->;
+export type VaultDistributeParameters = ExtractRequestParameters<VaultDistributeRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.vaultModify} method. */
-export type VaultModifyParameters = Omit<
-    VaultModifyRequest["action"],
-    "type"
->;
+export type VaultModifyParameters = ExtractRequestParameters<VaultModifyRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.vaultTransfer} method. */
-export type VaultTransferParameters =
-    & Omit<VaultTransferRequest["action"], "type">
-    & Partial<Pick<VaultTransferRequest, "expiresAfter">>;
+export type VaultTransferParameters = ExtractRequestParameters<VaultTransferRequest>;
 
 /** Parameters for the {@linkcode ExchangeClient.withdraw3} method. */
-export type Withdraw3Parameters = Omit<
-    Withdraw3Request["action"],
-    "type" | "hyperliquidChain" | "signatureChainId" | "time"
->;
+export type Withdraw3Parameters = ExtractRequestParameters<Withdraw3Request>;
 
-/** Successful variant of {@linkcode CancelResponse} without error statuses. */
-export type CancelResponseSuccess = CancelResponse & {
-    response: {
-        data: {
-            statuses: Exclude<CancelResponse["response"]["data"]["statuses"][number], { error: string }>[];
-        };
-    };
-};
+type ExtractSuccessResponse<T> = T extends { response: { data: { statuses: (infer U)[] } } } ? T & { // multiple statuses
+        response: { data: { statuses: Exclude<U, { error: string }>[] } };
+    }
+    : T extends { response: { data: { status: infer S } } } ? T & { // single status
+            response: { data: { status: Exclude<S, { error: string }> } };
+        }
+    : never; // unknown response
 
-/** Successful variant of {@linkcode OrderResponse} without error statuses. */
-export type OrderResponseSuccess = OrderResponse & {
-    response: {
-        data: {
-            statuses: Exclude<OrderResponse["response"]["data"]["statuses"][number], { error: string }>[];
-        };
-    };
-};
+/** Successful variant of {@linkcode CancelResponse} without errors. */
+export type CancelResponseSuccess = ExtractSuccessResponse<CancelResponse>;
 
-/** Successful variant of {@linkcode TwapCancelResponse} without error status. */
-export type TwapCancelResponseSuccess = TwapCancelResponse & {
-    response: {
-        data: {
-            status: Exclude<TwapCancelResponse["response"]["data"]["status"], { error: string }>;
-        };
-    };
-};
+/** Successful variant of {@linkcode OrderResponse} without errors. */
+export type OrderResponseSuccess = ExtractSuccessResponse<OrderResponse>;
 
-/** Successful variant of {@linkcode TwapOrderResponse} without error status. */
-export type TwapOrderResponseSuccess = TwapOrderResponse & {
-    response: {
-        data: {
-            status: Exclude<TwapOrderResponse["response"]["data"]["status"], { error: string }>;
-        };
-    };
-};
+/** Successful variant of {@linkcode TwapCancelResponse} without errors. */
+export type TwapCancelResponseSuccess = ExtractSuccessResponse<TwapCancelResponse>;
+
+/** Successful variant of {@linkcode TwapOrderResponse} without errors. */
+export type TwapOrderResponseSuccess = ExtractSuccessResponse<TwapOrderResponse>;
 
 /** Error thrown when the API returns an error response. */
 export class ApiRequestError extends HyperliquidError {
@@ -582,7 +428,7 @@ export class ExchangeClient<
     /**
      * Approve an agent to sign on behalf of the master account.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -600,42 +446,23 @@ export class ExchangeClient<
      * await exchClient.approveAgent({ agentAddress: "0x...", agentName: "..." });
      * ```
      */
-    async approveAgent(args: DeepImmutable<ApproveAgentParameters>, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    async approveAgent(args: ApproveAgentParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.approveAgent({
-            type: "approveAgent",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-        if (action.agentName === "") action.agentName = null;
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "approveAgent",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Approve a maximum fee rate for a builder.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -653,44 +480,23 @@ export class ExchangeClient<
      * await exchClient.approveBuilderFee({ maxFeeRate: "0.01%", builder: "0x..." });
      * ```
      */
-    async approveBuilderFee(
-        args: DeepImmutable<ApproveBuilderFeeParameters>,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse> {
-        // Destructure the parameters
+    async approveBuilderFee(args: ApproveBuilderFeeParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.approveBuilderFee({
-            type: "approveBuilderFee",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "approveBuilderFee",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Modify multiple orders.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful variant of {@link OrderResponse} without error statuses.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -722,42 +528,22 @@ export class ExchangeClient<
      * });
      * ```
      */
-    async batchModify(args: DeepImmutable<BatchModifyParameters>, signal?: AbortSignal): Promise<OrderResponseSuccess> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.batchModify({ type: "batchModify", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as OrderResponse;
-        this._validateResponse(response);
-        return response;
+    async batchModify(args: BatchModifyParameters, signal?: AbortSignal): Promise<OrderResponseSuccess> {
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "batchModify",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Cancel order(s).
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful variant of {@link CancelResponse} without error statuses.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -780,41 +566,21 @@ export class ExchangeClient<
      * ```
      */
     async cancel(args: CancelParameters, signal?: AbortSignal): Promise<CancelResponseSuccess> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.cancel({ type: "cancel", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as CancelResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "cancel",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Cancel order(s) by cloid.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful variant of {@link CancelResponse} without error statuses.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -837,41 +603,21 @@ export class ExchangeClient<
      * ```
      */
     async cancelByCloid(args: CancelByCloidParameters, signal?: AbortSignal): Promise<CancelResponseSuccess> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.cancelByCloid({ type: "cancelByCloid", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as CancelResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "cancelByCloid",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Transfer native token from the user's spot account into staking for delegating to validators.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -890,40 +636,22 @@ export class ExchangeClient<
      * ```
      */
     async cDeposit(args: CDepositParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.cDeposit({
-            type: "cDeposit",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "cDeposit",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Claim rewards from referral program.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -941,33 +669,18 @@ export class ExchangeClient<
      * await exchClient.claimRewards();
      * ```
      */
-    async claimRewards(signal?: AbortSignal): Promise<SuccessResponse> {
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.claimRewards({ type: "claimRewards" });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+    claimRewards(signal?: AbortSignal): Promise<SuccessResponse> {
+        return this._executeAction({
+            action: {
+                type: "claimRewards",
+            },
+        }, signal);
     }
 
     /**
      * Convert a single-signature account to a multi-signature account or vice versa.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -993,40 +706,22 @@ export class ExchangeClient<
      * ```
      */
     async convertToMultiSigUser(args: ConvertToMultiSigUserParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const actionArgs = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.convertToMultiSigUser({
-            type: "convertToMultiSigUser",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            signers: JSON.stringify(actionArgs),
-            nonce,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "convertToMultiSigUser",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                signers: JSON.stringify(actionArgs),
+            },
+        }, signal);
     }
 
     /**
      * Create a sub-account.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Response for creating a sub-account.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1044,36 +739,20 @@ export class ExchangeClient<
      * const data = await exchClient.createSubAccount({ name: "..." });
      * ```
      */
-    async createSubAccount(args: CreateSubAccountParameters, signal?: AbortSignal): Promise<CreateSubAccountResponse> {
-        // Destructure the parameters
+    createSubAccount(args: CreateSubAccountParameters, signal?: AbortSignal): Promise<CreateSubAccountResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.createSubAccount({ type: "createSubAccount", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as CreateSubAccountResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "createSubAccount",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Create a vault.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Response for creating a vault.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1088,39 +767,28 @@ export class ExchangeClient<
      * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
-     * const data = await exchClient.createVault({ name: "...", description: "...", initialUsd: 100 * 1e6 });
+     * const data = await exchClient.createVault({
+     *   name: "...",
+     *   description: "...",
+     *   initialUsd: 100 * 1e6,
+     *   nonce: Date.now(),
+     * });
      * ```
      */
-    async createVault(args: CreateVaultParameters, signal?: AbortSignal): Promise<CreateVaultResponse> {
-        // Destructure the parameters
+    createVault(args: CreateVaultParameters, signal?: AbortSignal): Promise<CreateVaultResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.createVault({ type: "createVault", nonce, ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as CreateVaultResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "createVault",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Jail or unjail self as a validator signer.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1143,39 +811,20 @@ export class ExchangeClient<
      * ```
      */
     async cSignerAction(args: CSignerActionParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
-        const {
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.CSignerAction({ type: "CSignerAction", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, expiresAfter },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        const { expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "CSignerAction",
+                ...actionArgs,
+            },
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Action related to validator management.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1220,39 +869,20 @@ export class ExchangeClient<
      * ```
      */
     async cValidatorAction(args: CValidatorActionParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
-        const {
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.CValidatorAction({ type: "CValidatorAction", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, expiresAfter },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        const { expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "CValidatorAction",
+                ...actionArgs,
+            },
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Transfer native token from staking into the user's spot account.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1271,40 +901,22 @@ export class ExchangeClient<
      * ```
      */
     async cWithdraw(args: CWithdrawParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.cWithdraw({
-            type: "cWithdraw",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "cWithdraw",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Configure block type for EVM transactions.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Response for creating a sub-account.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1322,36 +934,20 @@ export class ExchangeClient<
      * const data = await exchClient.evmUserModify({ usingBigBlocks: true });
      * ```
      */
-    async evmUserModify(args: EvmUserModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    evmUserModify(args: EvmUserModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.evmUserModify({ type: "evmUserModify", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "evmUserModify",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Modify an order.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1381,41 +977,21 @@ export class ExchangeClient<
      * ```
      */
     async modify(args: ModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.modify({ type: "modify", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "modify",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * A multi-signature request.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Any successful response.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1468,57 +1044,23 @@ export class ExchangeClient<
             | TwapOrderResponseSuccess
             | TwapCancelResponseSuccess,
     >(args: MultiSigParameters, signal?: AbortSignal): Promise<T> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            nonce,
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const action = actionSorter.multiSig({
-            type: "multiSig",
-            signatureChainId: await this._getSignatureChainId(),
-            ...actionArgs,
-        });
-
-        // Sign the action
-        // deno-lint-ignore no-explicit-any
-        const actionWithoutType = structuredClone<any>(action);
-        delete actionWithoutType.type;
-
-        const signature = await signMultiSigAction({
-            wallet: this.wallet,
-            action: actionWithoutType,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as
-            | SuccessResponse
-            | ErrorResponse
-            | CancelResponse
-            | CreateSubAccountResponse
-            | CreateVaultResponse
-            | OrderResponse
-            | TwapOrderResponse
-            | TwapCancelResponse;
-        this._validateResponse(response);
-        return response as T;
+        const { vaultAddress, expiresAfter, nonce, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "multiSig",
+                signatureChainId: await this._getSignatureChainId(),
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+            multiSigNonce: nonce,
+        }, signal);
     }
 
     /**
      * Place an order(s).
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful variant of {@link OrderResponse} without error statuses.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1550,41 +1092,21 @@ export class ExchangeClient<
      * ```
      */
     async order(args: OrderParameters, signal?: AbortSignal): Promise<OrderResponseSuccess> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.order({ type: "order", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as OrderResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "order",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Deploying HIP-3 assets.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1614,36 +1136,20 @@ export class ExchangeClient<
      * });
      * ```
      */
-    async perpDeploy(args: PerpDeployParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    perpDeploy(args: PerpDeployParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.perpDeploy({ type: "perpDeploy", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "perpDeploy",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Transfer funds between Spot account and Perp dex account.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1662,40 +1168,22 @@ export class ExchangeClient<
      * ```
      */
     async perpDexClassTransfer(args: PerpDexClassTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.PerpDexClassTransfer({
-            type: "PerpDexClassTransfer",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "PerpDexClassTransfer",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Transfer collateral tokens between different perp dexes for the same user.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1714,40 +1202,22 @@ export class ExchangeClient<
      * ```
      */
     async perpDexTransfer(args: PerpDexTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.PerpDexTransfer({
-            type: "PerpDexTransfer",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "PerpDexTransfer",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Create a referral code.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1765,36 +1235,20 @@ export class ExchangeClient<
      * await exchClient.registerReferrer({ code: "..." });
      * ```
      */
-    async registerReferrer(args: RegisterReferrerParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    registerReferrer(args: RegisterReferrerParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.registerReferrer({ type: "registerReferrer", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "registerReferrer",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Reserve additional rate-limited actions for a fee.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1813,39 +1267,20 @@ export class ExchangeClient<
      * ```
      */
     async reserveRequestWeight(args: ReserveRequestWeightParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
-        const {
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.reserveRequestWeight({ type: "reserveRequestWeight", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, expiresAfter },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        const { expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "reserveRequestWeight",
+                ...actionArgs,
+            },
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Schedule a cancel-all operation at a future time.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1871,42 +1306,21 @@ export class ExchangeClient<
     ): Promise<SuccessResponse> {
         const args = args_or_signal instanceof AbortSignal ? {} : args_or_signal ?? {};
         const signal = args_or_signal instanceof AbortSignal ? args_or_signal : maybeSignal;
-
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.scheduleCancel({ type: "scheduleCancel", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "scheduleCancel",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Set the display name in the leaderboard.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1924,36 +1338,20 @@ export class ExchangeClient<
      * await exchClient.setDisplayName({ displayName: "..." });
      * ```
      */
-    async setDisplayName(args: SetDisplayNameParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    setDisplayName(args: SetDisplayNameParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.setDisplayName({ type: "setDisplayName", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "setDisplayName",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Set a referral code.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -1971,36 +1369,20 @@ export class ExchangeClient<
      * await exchClient.setReferrer({ code: "..." });
      * ```
      */
-    async setReferrer(args: SetReferrerParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    setReferrer(args: SetReferrerParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.setReferrer({ type: "setReferrer", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "setReferrer",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Deploying HIP-1 and HIP-2 assets.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2028,36 +1410,20 @@ export class ExchangeClient<
      * });
      * ```
      */
-    async spotDeploy(args: SpotDeployParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    spotDeploy(args: SpotDeployParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.spotDeploy({ type: "spotDeploy", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "spotDeploy",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Send spot assets to another address.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2080,40 +1446,53 @@ export class ExchangeClient<
      * ```
      */
     async spotSend(args: SpotSendParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "spotSend",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                time: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
+    }
 
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.spotSend({
-            type: "spotSend",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            time: nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+    /**
+     * Modify a sub-account's.
+     * @param args - The parameters for the request.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
+     * @returns Successful response without specific data.
+     *
+     * @throws {ApiRequestError} When the API returns an unsuccessful response.
+     * @throws {TransportError} When the transport layer throws an error.
+     *
+     * @see null
+     * @example
+     * ```ts
+     * import * as hl from "@nktkas/hyperliquid";
+     *
+     * const privateKey = "0x..."; // or `viem`, `ethers`
+     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
+     * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
+     *
+     * await exchClient.subAccountModify({ subAccountUser: "0x...", name: "..."  });
+     * ```
+     */
+    subAccountModify(args: SubAccountModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
+        const { ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "subAccountModify",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Opt Out of Spot Dusting.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2131,36 +1510,20 @@ export class ExchangeClient<
      * await exchClient.spotUser({ toggleSpotDusting: { optOut: false } });
      * ```
      */
-    async spotUser(args: SpotUserParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    spotUser(args: SpotUserParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.spotUser({ type: "spotUser", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "spotUser",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Transfer between sub-accounts (spot).
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2183,39 +1546,20 @@ export class ExchangeClient<
      * });
      * ```
      */
-    async subAccountSpotTransfer(
-        args: SubAccountSpotTransferParameters,
-        signal?: AbortSignal,
-    ): Promise<SuccessResponse> {
-        // Destructure the parameters
+    subAccountSpotTransfer(args: SubAccountSpotTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.subAccountSpotTransfer({ type: "subAccountSpotTransfer", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "subAccountSpotTransfer",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Transfer between sub-accounts (perpetual).
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2233,36 +1577,20 @@ export class ExchangeClient<
      * await exchClient.subAccountTransfer({ subAccountUser: "0x...", isDeposit: true, usd: 1 * 1e6 });
      * ```
      */
-    async subAccountTransfer(args: SubAccountTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    subAccountTransfer(args: SubAccountTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.subAccountTransfer({ type: "subAccountTransfer", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "subAccountTransfer",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Delegate or undelegate native tokens to or from a validator.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2281,40 +1609,22 @@ export class ExchangeClient<
      * ```
      */
     async tokenDelegate(args: TokenDelegateParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.tokenDelegate({
-            type: "tokenDelegate",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "tokenDelegate",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Cancel a TWAP order.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful variant of {@link TwapCancelResponse} without error status.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2333,41 +1643,21 @@ export class ExchangeClient<
      * ```
      */
     async twapCancel(args: TwapCancelParameters, signal?: AbortSignal): Promise<TwapCancelResponseSuccess> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.twapCancel({ type: "twapCancel", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as TwapCancelResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "twapCancel",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Place a TWAP order.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful variant of {@link TwapOrderResponse} without error status.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2383,51 +1673,33 @@ export class ExchangeClient<
      * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
      *
      * const data = await exchClient.twapOrder({
-     *   a: 0,
-     *   b: true,
-     *   s: "1",
-     *   r: false,
-     *   m: 10,
-     *   t: true,
+     *   twap: {
+     *     a: 0,
+     *     b: true,
+     *     s: "1",
+     *     r: false,
+     *     m: 10,
+     *     t: true,
+     *   },
      * });
      * ```
      */
     async twapOrder(args: TwapOrderParameters, signal?: AbortSignal): Promise<TwapOrderResponseSuccess> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.twapOrder({ type: "twapOrder", twap: { ...actionArgs } });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as TwapOrderResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "twapOrder",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Add or remove margin from isolated position.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2446,41 +1718,21 @@ export class ExchangeClient<
      * ```
      */
     async updateIsolatedMargin(args: UpdateIsolatedMarginParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.updateIsolatedMargin({ type: "updateIsolatedMargin", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "updateIsolatedMargin",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Update cross or isolated leverage on a coin.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2499,41 +1751,21 @@ export class ExchangeClient<
      * ```
      */
     async updateLeverage(args: UpdateLeverageParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.updateLeverage({ type: "updateLeverage", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, vaultAddress, expiresAfter },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        const { vaultAddress, expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "updateLeverage",
+                ...actionArgs,
+            },
+            vaultAddress: vaultAddress ?? this.defaultVaultAddress,
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Transfer funds between Spot account and Perp account.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2552,40 +1784,22 @@ export class ExchangeClient<
      * ```
      */
     async usdClassTransfer(args: UsdClassTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.usdClassTransfer({
-            type: "usdClassTransfer",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "usdClassTransfer",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                nonce: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Send usd to another address.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2604,40 +1818,22 @@ export class ExchangeClient<
      * ```
      */
     async usdSend(args: UsdSendParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.usdSend({
-            type: "usdSend",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            time: nonce,
-            ...actionArgs,
-        });
-
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "usdSend",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                time: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Distribute funds from a vault between followers.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2655,36 +1851,20 @@ export class ExchangeClient<
      * await exchClient.vaultDistribute({ vaultAddress: "0x...", usd: 10 * 1e6 });
      * ```
      */
-    async vaultDistribute(args: VaultDistributeParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    vaultDistribute(args: VaultDistributeParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.vaultDistribute({ type: "vaultDistribute", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "vaultDistribute",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Modify a vault's configuration.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2706,36 +1886,20 @@ export class ExchangeClient<
      * });
      * ```
      */
-    async vaultModify(args: VaultModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
+    vaultModify(args: VaultModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { ...actionArgs } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.vaultModify({ type: "vaultModify", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        return this._executeAction({
+            action: {
+                type: "vaultModify",
+                ...actionArgs,
+            },
+        }, signal);
     }
 
     /**
      * Deposit or withdraw from a vault.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2754,39 +1918,20 @@ export class ExchangeClient<
      * ```
      */
     async vaultTransfer(args: VaultTransferParameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
-        const {
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.vaultTransfer({ type: "vaultTransfer", ...actionArgs });
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action,
-            nonce,
-            isTestnet: this.isTestnet,
-            expiresAfter,
-        });
-
-        // Send a request
-        const response = await this.transport.request(
-            "exchange",
-            { action, signature, nonce, expiresAfter },
-            signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
-        return response;
+        const { expiresAfter, ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "vaultTransfer",
+                ...actionArgs,
+            },
+            expiresAfter: expiresAfter ?? await this._getDefaultExpiresAfter(),
+        }, signal);
     }
 
     /**
      * Initiate a withdrawal request.
      * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
+     * @param signal - An optional [AbortSignal](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
      * @returns Successful response without specific data.
      *
      * @throws {ApiRequestError} When the API returns an unsuccessful response.
@@ -2805,33 +1950,98 @@ export class ExchangeClient<
      * ```
      */
     async withdraw3(args: Withdraw3Parameters, signal?: AbortSignal): Promise<SuccessResponse> {
-        // Destructure the parameters
         const { ...actionArgs } = args;
+        return this._executeAction({
+            action: {
+                type: "withdraw3",
+                hyperliquidChain: this._getHyperliquidChain(),
+                signatureChainId: await this._getSignatureChainId(),
+                time: await this.nonceManager(),
+                ...actionArgs,
+            },
+        }, signal);
+    }
 
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action = actionSorter.withdraw3({
-            type: "withdraw3",
-            hyperliquidChain: this._getHyperliquidChain(),
-            signatureChainId: await this._getSignatureChainId(),
-            time: nonce,
-            ...actionArgs,
-        });
+    protected async _executeAction<
+        T extends
+            | SuccessResponse
+            | CancelResponseSuccess
+            | CreateSubAccountResponse
+            | CreateVaultResponse
+            | OrderResponseSuccess
+            | TwapOrderResponseSuccess
+            | TwapCancelResponseSuccess,
+    >(
+        args: {
+            action: Parameters<typeof actionSorter[keyof typeof actionSorter]>[0];
+            vaultAddress?: Hex;
+            expiresAfter?: number;
+            multiSigNonce?: number;
+        },
+        signal?: AbortSignal,
+    ): Promise<T> {
+        const { action, vaultAddress, expiresAfter, multiSigNonce } = args;
 
-        // Sign the action
-        const signature = await signUserSignedAction({
-            wallet: this.wallet,
-            action,
-            types: userSignedActionEip712Types[action.type],
-        });
+        // Sign an action
+
+        // deno-lint-ignore no-explicit-any
+        const sortedAction = actionSorter[action.type](action as any); // TypeScript cannot infer a type from a dynamic function call
+
+        let nonce: number;
+        if (sortedAction.type === "multiSig") { // Multi-signature action
+            nonce = multiSigNonce!;
+        } else if ("signatureChainId" in sortedAction) { // User-signed action
+            nonce = "nonce" in sortedAction ? sortedAction.nonce : sortedAction.time;
+        } else { // L1 action
+            nonce = await this.nonceManager();
+        }
+
+        let signature: Signature;
+        if (sortedAction.type === "multiSig") { // Multi-signature action
+            // deno-lint-ignore no-explicit-any
+            const actionWithoutType = structuredClone<any>(sortedAction);
+            delete actionWithoutType.type;
+            signature = await signMultiSigAction({
+                wallet: this.wallet,
+                action: actionWithoutType,
+                nonce,
+                isTestnet: this.isTestnet,
+                vaultAddress,
+                expiresAfter,
+            });
+        } else if ("signatureChainId" in sortedAction) { // User-signed action
+            signature = await signUserSignedAction({
+                wallet: this.wallet,
+                action: sortedAction,
+                types: userSignedActionEip712Types[sortedAction.type],
+            });
+            if ("agentName" in sortedAction && sortedAction.agentName === "") sortedAction.agentName = null;
+        } else { // L1 action
+            signature = await signL1Action({
+                wallet: this.wallet,
+                action: sortedAction,
+                nonce,
+                isTestnet: this.isTestnet,
+                vaultAddress,
+                expiresAfter,
+            });
+        }
 
         // Send a request
         const response = await this.transport.request(
             "exchange",
-            { action, signature, nonce },
+            { action: sortedAction, signature, nonce, vaultAddress, expiresAfter },
             signal,
-        ) as SuccessResponse | ErrorResponse;
-        this._validateResponse(response);
+        ) as
+            | SuccessResponse
+            | ErrorResponse
+            | CancelResponse
+            | CreateSubAccountResponse
+            | CreateVaultResponse
+            | OrderResponse
+            | TwapOrderResponse
+            | TwapCancelResponse;
+        this._validateResponse<T>(response);
         return response;
     }
 
@@ -2879,7 +2089,16 @@ export class ExchangeClient<
     }
 
     /** Validate a response from the API. */
-    protected _validateResponse(
+    protected _validateResponse<
+        T extends
+            | SuccessResponse
+            | CancelResponseSuccess
+            | CreateSubAccountResponse
+            | CreateVaultResponse
+            | OrderResponseSuccess
+            | TwapOrderResponseSuccess
+            | TwapCancelResponseSuccess,
+    >(
         response:
             | SuccessResponse
             | ErrorResponse
@@ -2889,14 +2108,7 @@ export class ExchangeClient<
             | OrderResponse
             | TwapOrderResponse
             | TwapCancelResponse,
-    ): asserts response is
-        | SuccessResponse
-        | CancelResponseSuccess
-        | CreateSubAccountResponse
-        | CreateVaultResponse
-        | OrderResponseSuccess
-        | TwapOrderResponseSuccess
-        | TwapCancelResponseSuccess {
+    ): asserts response is T {
         if (response.status === "err") {
             throw new ApiRequestError(response as ErrorResponse);
         } else if (response.response.type === "order" || response.response.type === "cancel") {

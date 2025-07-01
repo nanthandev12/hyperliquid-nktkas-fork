@@ -57,11 +57,11 @@ function run<T extends Record<string, unknown>>(
     args: T = {} as T,
     requiredPrivateKey = false,
 ) {
-    const MethodReturnType = schemaGenerator(import.meta.url, `MethodReturnType_${name}`);
     Deno.test(
         name,
         { ignore: !METHODS_TO_TEST.includes(name) || requiredPrivateKey && !PRIVATE_KEY },
         async () => {
+            const MethodReturnType = schemaGenerator(import.meta.url, `MethodReturnType_${name}`);
             await new Promise((r) => setTimeout(r, cliArgs.wait)); // delay to avoid rate limits
             await fn(MethodReturnType, args);
         },
@@ -192,7 +192,26 @@ run(
             }),
             90_000,
         );
-        schemaCoverage(types, [data]);
+        schemaCoverage(types, [data], {
+            ignoreEnumValuesByPath: {
+                "#/properties/i": [
+                    "1m",
+                    "3m",
+                    "5m",
+                    "15m",
+                    "30m",
+                    "1h",
+                    "2h",
+                    "4h",
+                    "8h",
+                    "12h",
+                    "1d",
+                    "3d",
+                    "1w",
+                    "1M",
+                ],
+            },
+        });
     },
 );
 
@@ -354,12 +373,14 @@ run(
             const twapSz = formatSize(new BigNumber(55).div(ctx.markPx), universe.szDecimals);
 
             const result = await exchClient.twapOrder({
-                a: id,
-                b: buy,
-                s: twapSz,
-                r: false,
-                m: 5,
-                t: false,
+                twap: {
+                    a: id,
+                    b: buy,
+                    s: twapSz,
+                    r: false,
+                    m: 5,
+                    t: false,
+                },
             });
             const twapId = result.response.data.status.running.twapId;
 
@@ -621,12 +642,14 @@ run(
             const twapSz = formatSize(new BigNumber(55).div(ctx.markPx), universe.szDecimals);
 
             const result = await exchClient.twapOrder({
-                a: id,
-                b: buy,
-                s: twapSz,
-                r: false,
-                m: 5,
-                t: false,
+                twap: {
+                    a: id,
+                    b: buy,
+                    s: twapSz,
+                    r: false,
+                    m: 5,
+                    t: false,
+                },
             });
             const twapId = result.response.data.status.running.twapId;
 
@@ -877,8 +900,26 @@ run(
         // Create orders/positions/TWAP's and set up spot dusting opt-out
         const [twap1, twap2] = await Promise.all([
             // Create TWAP orders
-            exchClient.twapOrder({ a: id1, b: true, s: twapSz1, r: false, m: 5, t: false }),
-            exchClient.twapOrder({ a: id2, b: false, s: twapSz2, r: false, m: 5, t: false }),
+            exchClient.twapOrder({
+                twap: {
+                    a: id1,
+                    b: true,
+                    s: twapSz1,
+                    r: false,
+                    m: 5,
+                    t: false,
+                },
+            }),
+            exchClient.twapOrder({
+                twap: {
+                    a: id2,
+                    b: false,
+                    s: twapSz2,
+                    r: false,
+                    m: 5,
+                    t: false,
+                },
+            }),
             // Create orders
             exchClient.order({
                 orders: [{ a: id1, b: true, p: pxDown1, s: sz1, r: false, t: { limit: { tif: "Gtc" } } }],
