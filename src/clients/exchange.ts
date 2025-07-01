@@ -126,6 +126,24 @@ export interface ExchangeClientParameters<
      symbolConversion?: any;
 }
 
+type ExtractRequestParameters<T extends BaseExchangeRequest> =
+    & (T["action"] extends { signatureChainId: unknown }
+        ? Omit<T["action"], "type" | "signatureChainId" | "hyperliquidChain" | "nonce" | "time"> // user-signed actions
+        : Omit<T["action"], "type">) // L1 actions
+    // deno-lint-ignore ban-types
+    & (T["vaultAddress"] extends undefined ? {} : Pick<T, "vaultAddress">)
+    // deno-lint-ignore ban-types
+    & (T["expiresAfter"] extends undefined ? {} : Pick<T, "expiresAfter">);
+
+type ExtractRequestParameters<T extends BaseExchangeRequest> =
+    & (T["action"] extends { signatureChainId: unknown }
+        ? Omit<T["action"], "type" | "signatureChainId" | "hyperliquidChain" | "nonce" | "time"> // user-signed actions
+        : Omit<T["action"], "type">) // L1 actions
+    // deno-lint-ignore ban-types
+    & (T["vaultAddress"] extends undefined ? {} : Pick<T, "vaultAddress">)
+    // deno-lint-ignore ban-types
+    & (T["expiresAfter"] extends undefined ? {} : Pick<T, "expiresAfter">);
+
 /** Parameters for the {@linkcode ExchangeClient.approveAgent} method. */
 export type ApproveAgentParameters = ExtractRequestParameters<ApproveAgentRequest>;
 
@@ -1160,7 +1178,6 @@ export class ExchangeClient<
     async order(args: OrderParameters, signal?: AbortSignal): Promise<OrderResponseSuccess> {
         const { vaultAddress, expiresAfter, ...actionArgs } = args;
 
-        
         // Convert asset ID from symbol to index if symbol conversion is enabled
         if (this.hasSymbolConversion && actionArgs.orders) {
             actionArgs.orders = await Promise.all(actionArgs.orders.map(async (order) => {
@@ -1172,6 +1189,7 @@ export class ExchangeClient<
                 return order;
             }));
         }
+        
         return this._executeAction({
             action: {
                 type: "order",
@@ -1774,10 +1792,10 @@ export class ExchangeClient<
         const { vaultAddress, expiresAfter, ...actionArgs } = args;
 
         // Convert asset IDs from symbols to indices if symbol conversion is enabled
-        if (this.hasSymbolConversion && actionArgs.a && typeof actionArgs.a === 'string') {
+        if (this.hasSymbolConversion && actionArgs.twap.a && typeof actionArgs.twap.a === 'string') {
             // Convert the symbol to asset index
-            const assetIndex = await this.getAssetIndex(actionArgs.a);
-            actionArgs.a = assetIndex;
+            const assetIndex = await this.getAssetIndex(actionArgs.twap.a);
+            actionArgs.twap.a = assetIndex;
         }
 
         return this._executeAction({
