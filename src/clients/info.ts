@@ -110,8 +110,8 @@ import type {
     VaultDetailsRequest,
     VaultSummariesRequest,
 } from "../types/info/requests.ts";
-import type { VaultDetails, VaultEquity, VaultLeading, VaultSummary } from "../types/info/vaults.ts";
-import type { Hex } from "../base.ts";
+import type { VaultDetails, VaultEquity, VaultSummary } from "../types/info/vaults.ts";
+
 /** Parameters for the {@linkcode InfoClient} constructor. */
 export interface InfoClientParameters<T extends IRequestTransport = IRequestTransport> {
     /** The transport used to connect to the Hyperliquid API. */
@@ -735,8 +735,6 @@ export class InfoClient<
           ? await this.symbolConversion!.convertResponse(response)
           : response;
     }
-
-  
 
     /**
      * Request leading vaults for a user.
