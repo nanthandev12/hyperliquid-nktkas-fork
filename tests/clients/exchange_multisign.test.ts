@@ -21,6 +21,7 @@ const cliArgs = parseArgs(Deno.args, { default: { wait: 3000 }, string: ["_"] })
 
 const PRIVATE_KEY = cliArgs._[0] as Hex; // must be sole signer for a multi-sign account
 const MULTI_SIGN_ADDRESS = "0x9150749C4cec13Dc7c1555D0d664F08d4d81Be83"; // replace with your multi-sign address
+const SUB_ACCOUNT_ADDRESS = "0xcb3f0bd249a89e45e86a44bcfc7113e4ffe84cd1"; // replace with your sub-account address
 
 const METHODS_TO_TEST = [ // controls which tests to run
     "approveAgent",
@@ -41,8 +42,8 @@ const METHODS_TO_TEST = [ // controls which tests to run
     "multiSig",
     "order",
     "perpDeploy",
-    "perpDexClassTransfer",
-    "perpDexTransfer",
+    // "perpDexClassTransfer", // FIXME: error `422 Unprocessable Entity - Failed to deserialize the JSON body into the target type`; Unknown changes from Hyperliquid
+    // "perpDexTransfer", // FIXME: error `422 Unprocessable Entity - Failed to deserialize the JSON body into the target type`; Unknown changes from Hyperliquid
     "registerReferrer",
     "reserveRequestWeight",
     "scheduleCancel",
@@ -50,6 +51,7 @@ const METHODS_TO_TEST = [ // controls which tests to run
     "setReferrer",
     "spotDeploy",
     "spotSend",
+    "subAccountModify",
     "spotUser",
     "subAccountSpotTransfer",
     "subAccountTransfer",
@@ -89,11 +91,11 @@ function run<T extends Record<string, unknown>>(
     fn: (types: SchemaObject, mode: "normal" | "multisign", args: T, t: Deno.TestContext) => Promise<void>,
     args: T = {} as T,
 ) {
-    const MethodReturnType = schemaGenerator(import.meta.url, `MethodReturnType_${name}`);
     Deno.test(
         name,
         { ignore: !METHODS_TO_TEST.includes(name) || !PRIVATE_KEY },
         async (t) => {
+            const MethodReturnType = schemaGenerator(import.meta.url, `MethodReturnType_${name}`);
             for (const mode of ["normal", "multisign"] as const) {
                 await t.step({
                     name: mode,
@@ -485,7 +487,12 @@ run(
     async (types, mode) => {
         const client = mode === "normal" ? exchClient : multiSignClient;
 
-        await client.createVault({ name: "", description: "", initialUsd: 50 * 1e6 })
+        await client.createVault({
+            name: "",
+            description: "",
+            initialUsd: 50 * 1e6,
+            nonce: Date.now(),
+        })
             .then((data) => {
                 schemaCoverage(types, [data]);
             })
@@ -1457,6 +1464,28 @@ run(
     },
 );
 
+export type MethodReturnType_subAccountModify = Awaited<ReturnType<ExchangeClient["subAccountModify"]>>;
+run(
+    "subAccountModify",
+    async (types, mode, { subAccountUser }) => {
+        const client = mode === "normal" ? exchClient : multiSignClient;
+
+        await client.subAccountModify({
+            subAccountUser,
+            name: String(Date.now()),
+        }).then((data) => {
+            schemaCoverage(types, [data]);
+        })
+            .catch((e) => {
+                if (e instanceof SchemaCoverageError) throw e;
+                assertIsError(e, ApiRequestError, `Sub-account ${subAccountUser} is not registered to`);
+            });
+    },
+    {
+        subAccountUser: SUB_ACCOUNT_ADDRESS,
+    } as const,
+);
+
 export type MethodReturnType_spotUser = Awaited<ReturnType<ExchangeClient["spotUser"]>>;
 run(
     "spotUser",
@@ -1501,7 +1530,7 @@ run(
             schemaCoverage(types, d);
         }
     },
-    { subAccountUser: "0xcb3f0bd249a89e45e86a44bcfc7113e4ffe84cd1" } as const,
+    { subAccountUser: SUB_ACCOUNT_ADDRESS } as const,
 );
 
 export type MethodReturnType_subAccountTransfer = Awaited<ReturnType<ExchangeClient["subAccountTransfer"]>>;
@@ -1526,7 +1555,7 @@ run(
             schemaCoverage(types, d);
         }
     },
-    { subAccountUser: "0xcb3f0bd249a89e45e86a44bcfc7113e4ffe84cd1" } as const,
+    { subAccountUser: SUB_ACCOUNT_ADDRESS } as const,
 );
 
 export type MethodReturnType_tokenDelegate = Awaited<ReturnType<ExchangeClient["tokenDelegate"]>>;
@@ -1552,12 +1581,14 @@ run(
 
         async function createTWAP(client: ExchangeClient, id: number, sz: string): Promise<number> {
             const twapOrderResult = await client.twapOrder({
-                a: id,
-                b: true,
-                s: sz,
-                r: false,
-                m: 5,
-                t: false,
+                twap: {
+                    a: id,
+                    b: true,
+                    s: sz,
+                    r: false,
+                    m: 5,
+                    t: false,
+                },
             });
             const twapId = twapOrderResult.response.data.status.running.twapId;
             return twapId;
@@ -1602,21 +1633,25 @@ run(
         const data = await Promise.all([
             // Check response 'success'
             client.twapOrder({
-                a: id,
-                b: true,
-                s: sz,
-                r: false,
-                m: 5,
-                t: false,
+                twap: {
+                    a: id,
+                    b: true,
+                    s: sz,
+                    r: false,
+                    m: 5,
+                    t: false,
+                },
             }),
             // Check argument 'expiresAfter'
             client.twapOrder({
-                a: id,
-                b: true,
-                s: sz,
-                r: false,
-                m: 5,
-                t: false,
+                twap: {
+                    a: id,
+                    b: true,
+                    s: sz,
+                    r: false,
+                    m: 5,
+                    t: false,
+                },
                 expiresAfter: Date.now() + 1000 * 60 * 60,
             }),
         ]);
@@ -2029,7 +2064,17 @@ Deno.test("_validateResponse", { ignore: !PRIVATE_KEY }, async (t) => {
         name: "TwapCancelResponse",
         fn: async () => {
             await assertRejects(
-                () => exchClient.twapOrder({ a: 0, b: true, s: "0", r: false, m: 5, t: false }),
+                () =>
+                    exchClient.twapOrder({
+                        twap: {
+                            a: 0,
+                            b: true,
+                            s: "0",
+                            r: false,
+                            m: 5,
+                            t: false,
+                        },
+                    }),
                 ApiRequestError,
                 "Order has zero size.",
             );
@@ -2041,7 +2086,17 @@ Deno.test("_validateResponse", { ignore: !PRIVATE_KEY }, async (t) => {
         name: "TwapOrderResponse",
         fn: async () => {
             await assertRejects(
-                () => exchClient.twapOrder({ a: 0, b: true, s: "0", r: false, m: 5, t: false }),
+                () =>
+                    exchClient.twapOrder({
+                        twap: {
+                            a: 0,
+                            b: true,
+                            s: "0",
+                            r: false,
+                            m: 5,
+                            t: false,
+                        },
+                    }),
                 ApiRequestError,
                 "Order has zero size.",
             );

@@ -218,7 +218,7 @@ export class SymbolConversion<
   }
 
   async convertSymbol(symbol: string, mode: string = '', symbolMode: string = ''): Promise<string> {
-    await this.ensureInitialized();
+    this.ensureInitialized();
     let rSymbol: string;
     if (mode === 'reverse') {
       for (const [key, value] of this.exchangeToInternalNameMap.entries()) {
