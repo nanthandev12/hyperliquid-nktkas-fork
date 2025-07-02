@@ -126,14 +126,6 @@ export interface ExchangeClientParameters<
      symbolConversion?: any;
 }
 
-type ExtractRequestParameters<T extends BaseExchangeRequest> =
-    & (T["action"] extends { signatureChainId: unknown }
-        ? Omit<T["action"], "type" | "signatureChainId" | "hyperliquidChain" | "nonce" | "time"> // user-signed actions
-        : Omit<T["action"], "type">) // L1 actions
-    // deno-lint-ignore ban-types
-    & (T["vaultAddress"] extends undefined ? {} : Pick<T, "vaultAddress">)
-    // deno-lint-ignore ban-types
-    & (T["expiresAfter"] extends undefined ? {} : Pick<T, "expiresAfter">);
 
 type ExtractRequestParameters<T extends BaseExchangeRequest> =
     & (T["action"] extends { signatureChainId: unknown }
@@ -1052,7 +1044,6 @@ export class ExchangeClient<
     async modify(args: ModifyParameters, signal?: AbortSignal): Promise<SuccessResponse> {
         const { vaultAddress, expiresAfter, ...actionArgs } = args;
 
-        
         // Convert asset ID from symbol to index if symbol conversion is enabled
         if (this.hasSymbolConversion && actionArgs.order) {
             const order = actionArgs.order;

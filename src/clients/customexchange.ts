@@ -309,12 +309,9 @@ export class CustomExchangeClient<
             ...actionArgs
         } = args;
 
-        // Process symbol conversion for cancels if needed
-        let convertedActionArgs = { ...actionArgs };
-        
         // Convert asset IDs from symbols to indices if symbol conversion is enabled
         if (this.hasSymbolConversion && actionArgs.cancels) {
-            const convertedCancels = await Promise.all(actionArgs.cancels.map(async (cancel) => {
+            actionArgs.cancels = await Promise.all(actionArgs.cancels.map(async (cancel) => {
                 if (typeof cancel.a === 'string') {
                     // Convert the symbol to asset index
                     const assetIndex = await this.getAssetIndex(cancel.a);
@@ -322,15 +319,13 @@ export class CustomExchangeClient<
                 }
                 return cancel;
             }));
-            
-            convertedActionArgs.cancels = convertedCancels;
         }
 
         // Construct an action
         const nonce = await this.nonceManager();
         const action: CancelRequest["action"] = {
             type: "cancel",
-            ...convertedActionArgs,
+            ...actionArgs,
         };
 
         // Sign the action
@@ -617,12 +612,11 @@ export class CustomExchangeClient<
             ...actionArgs
         } = args;
 
-        // Convert asset IDs from symbols to indices if symbol conversion is enabled
-        let convertedActionArgs = { ...actionArgs };
+       
         
         // Convert asset IDs from symbols to indices if symbol conversion is enabled
         if (this.hasSymbolConversion && actionArgs.orders) {
-            const convertedOrders = await Promise.all(actionArgs.orders.map(async (order) => {
+            actionArgs.orders = await Promise.all(actionArgs.orders.map(async (order) => {
                 if (typeof order.a === 'string') {
                     // Convert the symbol to asset index
                     const assetIndex = await this.getAssetIndex(order.a);
@@ -630,15 +624,13 @@ export class CustomExchangeClient<
                 }
                 return order;
             }));
-            
-            convertedActionArgs.orders = convertedOrders;
         }
 
         // Construct an action
         const nonce = await this.nonceManager();
         const action: OrderRequest["action"] = {
             type: "order",
-            ...convertedActionArgs,
+            ...actionArgs,
         };
 
         // Sign the action
