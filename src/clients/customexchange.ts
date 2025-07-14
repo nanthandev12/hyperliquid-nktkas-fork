@@ -1,40 +1,14 @@
 import { type Hex, type MaybePromise } from "../base.ts";
 import type { IRequestTransport } from "../transports/base.ts";
+import type { AbstractWallet } from "../signing/mod.ts";
 import type {
-    BaseExchangeRequest,
-    CancelRequest,
-    OrderRequest
-   
-} from "../types/exchange/requests.ts";
-import type {
-    CancelResponse,
-    ErrorResponse,
     OrderResponse,
-    SuccessResponse,
 } from "../types/exchange/responses.ts";
-import {
-    type AbstractWallet,
-    actionSorter,
-    isAbstractEthersSigner,
-    isAbstractEthersV5Signer,
-    isAbstractViemWalletClient,
-    isAbstractWindowEthereum,
-    signL1Action,
-} from "../signing/mod.ts";
 import { SymbolConversion } from "../utils/symbolConversion.ts";
-import { AllMidsRequest, OpenOrdersRequest } from "../types/info/requests.ts";
-import { OpenOrdersParameters, 
-    ClearinghouseStateParameters, 
-    AllMidsParameters } from "../clients/info.ts";
-import { CancelResponseSuccess,
-    OrderResponseSuccess,
-    CancelParameters,
-    OrderParameters, 
-    ApiRequestError} from "../clients/exchange.ts";
+import { CancelResponseSuccess,} from "../clients/exchange.ts";
 import { Order } from "../types/info/orders.ts";
-import { AllMids } from "../types/info/assets.ts";
-import { PerpsClearinghouseState } from "../types/info/accounts.ts";
-import { ClearinghouseStateRequest } from "../types/info/requests.ts";
+import { InfoClient } from "../clients/info.ts";
+import { ExchangeClient } from "../clients/exchange.ts";
 
 /** Parameters for the {@linkcode ExchangeClient} constructor. */
 export interface CustomExchangeClientParameters<
@@ -120,238 +94,60 @@ export class CustomExchangeClient<
     T extends IRequestTransport = IRequestTransport,
     W extends AbstractWallet = AbstractWallet,
 > implements CustomExchangeClientParameters<T, W>, AsyncDisposable {
-    transport: T;
-    wallet: W;
-    isTestnet: boolean;
-    defaultVaultAddress?: Hex;
-    defaultExpiresAfter?: number | (() => MaybePromise<number>);
-    signatureChainId: Hex | (() => MaybePromise<Hex>);
-    nonceManager: () => MaybePromise<number>;
-    useSymbolConversion: boolean;
-    symbolConversion?: SymbolConversion<T>;
-    user : Hex;
+    private transport: T;
+    private wallet: W;
+    private isTestnet: boolean;
+    private defaultVaultAddress?: Hex;
+    private defaultExpiresAfter?: number | (() => MaybePromise<number>);
+    private signatureChainId?: Hex | (() => MaybePromise<Hex>);
+    private nonceManager: () => MaybePromise<number>;
+    private useSymbolConversion: boolean;
+    private symbolConversion?: SymbolConversion<T>;
+    private user : Hex;
     private hasSymbolConversion: boolean;
-
+    private infoClient: InfoClient<T>;
+    private exchangeClient: ExchangeClient<T, W>;
 
     
-
-    /**
-     * Initialises a new instance.
-     * @param args - The parameters for the client.
-     *
-     * @example Private key
-     * ```ts
-     * import * as hl from "@nktkas/hyperliquid";
-     *
-     * const privateKey = "0x...";
-     *
-     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
-     * ```
-     *
-     * @example Private key via [viem](https://viem.sh/docs/clients/wallet#local-accounts-private-key-mnemonic-etc)
-     * ```ts
-     * import * as hl from "@nktkas/hyperliquid";
-     * import { privateKeyToAccount } from "viem/accounts";
-     *
-     * const wallet = privateKeyToAccount("0x...");
-     *
-     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.CustomExchangeClient({ wallet, transport });
-     * ```
-     *
-     * @example Private key via [ethers.js](https://docs.ethers.org/v6/api/wallet/#Wallet) or [ethers.js v5](https://docs.ethers.org/v5/api/signer/#Wallet)
-     * ```ts
-     * import * as hl from "@nktkas/hyperliquid";
-     * import { ethers } from "ethers";
-     *
-     * const wallet = new ethers.Wallet("0x...");
-     *
-     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet, transport });
-     * ```
-     *
-     * @example External wallet (e.g. MetaMask) via [viem](https://viem.sh/docs/clients/wallet#optional-hoist-the-account)
-     * ```ts
-     * import * as hl from "@nktkas/hyperliquid";
-     * import { createWalletClient, custom } from "viem";
-     *
-     * const [account] = await window.ethereum.request({ method: "eth_requestAccounts" });
-     * const wallet = createWalletClient({ account, transport: custom(window.ethereum) });
-     *
-     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet, transport });
-     * ```
-     *
-     * @example External wallet (e.g. MetaMask) via `window.ethereum` directly
-     * ```ts
-     * import * as hl from "@nktkas/hyperliquid";
-     *
-     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet: window.ethereum, transport });
-     * ```
-     */
     constructor(args: CustomExchangeClientParameters<T, W>) {
         this.transport = args.transport;
         this.wallet = args.wallet;
         this.isTestnet = args.isTestnet ?? false;
         this.defaultVaultAddress = args.defaultVaultAddress;
         this.defaultExpiresAfter = args.defaultExpiresAfter;
-        this.signatureChainId = args.signatureChainId ?? this._guessSignatureChainId;
+        this.signatureChainId = args.signatureChainId ;
         this.nonceManager = args.nonceManager ?? new NonceManager().getNonce;
         this.useSymbolConversion = args.useSymbolConversion || false;
         this.symbolConversion = args.symbolConversion;
         this.user = args.user;
         // Pre-compute whether we have symbol conversion capability
         this.hasSymbolConversion = this.useSymbolConversion && !!this.symbolConversion;
-    }
-
-    private async getAssetIndex(symbol: string): Promise<number> {
-        if (!this.hasSymbolConversion) {
-            throw new Error("Symbol conversion is not enabled");
-        }
-        
-        const index = await this.symbolConversion!.getAssetIndex(symbol);
-        if (index === undefined) {
-            throw new Error(`Unknown asset: ${symbol}`);
-        }
-        return index;
-    }
-
-
-    async openOrders(args: OpenOrdersParameters, signal?: AbortSignal): Promise<Order[]> {
-        const request: OpenOrdersRequest = {
-            type: "openOrders",
-            ...args,
-        };
-        const response = await this.transport.request<Order[]>("info", request, signal)
-        return this.hasSymbolConversion
-            ? await this.symbolConversion!.convertResponse(response)
-            : response;
-    }
-
-    allMids(args?: AllMidsParameters, signal?: AbortSignal): Promise<AllMids>;
-    allMids(signal?: AbortSignal): Promise<AllMids>;
-    async allMids(args_or_signal?: AllMidsParameters | AbortSignal, maybeSignal?: AbortSignal): Promise<AllMids> {
-        const args = args_or_signal instanceof AbortSignal ? {} : args_or_signal;
-        const signal = args_or_signal instanceof AbortSignal ? args_or_signal : maybeSignal;
-
-        const request: AllMidsRequest = {
-            type: "allMids",
-            ...args,
-        };
-        
-        const response = await this.transport.request<AllMids>("info", request, signal)
-            
-        if (this.hasSymbolConversion) {
-            const convertedResponse: any = {};
-            for (const [key, value] of Object.entries(response)) {
-                const convertedKey = await this.symbolConversion!.convertSymbol(key);
-                const convertedValue = parseFloat(value as string);
-                convertedResponse[convertedKey] = convertedValue;
-            }
-            return convertedResponse as AllMids;
-        } else {
-            return response;
-        }
-    }
-
-      async clearinghouseState(args: ClearinghouseStateParameters, signal?: AbortSignal): Promise<PerpsClearinghouseState> {
-            const request: ClearinghouseStateRequest = {
-                type: "clearinghouseState",
-                ...args,
-            };
-            const response = await this.transport.request<PerpsClearinghouseState>("info", request, signal)
-            return this.hasSymbolConversion
-                ? await this.symbolConversion!.convertResponse(response, ['name', 'coin', 'symbol'], 'PERP')
-                : response;
-        }
-
-
-        async getAllAssets(): Promise<{ perp: string[]; spot: string[] }> {
-            return await this.symbolConversion!.getAllAssets();
-          }
-
-
-
-
-
-
-    /**
-     * Cancel order(s).
-     * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
-     * @returns Successful variant of {@link CancelResponse} without error statuses.
-     * @throws {ApiRequestError} When the API returns an error response.
-     *
-     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#cancel-order-s
-     * @example
-     * ```ts
-     * import * as hl from "@nktkas/hyperliquid";
-     *
-     * const privateKey = "0x..."; // or `viem`, `ethers`
-     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
-     *
-     * const data = await exchClient.cancel({
-     *   cancels: [{
-     *     a: 0, // Asset index
-     *     o: 123, // Order ID
-     *   }],
-     * });
-     * ```
-     */
-    async cancel(args: CancelParameters, signal?: AbortSignal): Promise<CancelResponseSuccess> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-        // Convert asset IDs from symbols to indices if symbol conversion is enabled
-        if (this.hasSymbolConversion && actionArgs.cancels) {
-            actionArgs.cancels = await Promise.all(actionArgs.cancels.map(async (cancel) => {
-                if (typeof cancel.a === 'string') {
-                    // Convert the symbol to asset index
-                    const assetIndex = await this.getAssetIndex(cancel.a);
-                    return { ...cancel, a: assetIndex };
-                }
-                return cancel;
-            }));
-        }
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action: CancelRequest["action"] = {
-            type: "cancel",
-            ...actionArgs,
-        };
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action: actionSorter[action.type](action),
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies CancelRequest,
-            signal,
-        );
+        this.infoClient = new InfoClient(
+            { transport: this.transport,
+                useSymbolConversion: this.useSymbolConversion,
+                symbolConversion: this.symbolConversion });
+        this.exchangeClient = new ExchangeClient(
+            { transport: this.transport,
+                wallet: this.wallet,
+                isTestnet: this.isTestnet,
+                defaultVaultAddress: this.defaultVaultAddress,
+                defaultExpiresAfter: this.defaultExpiresAfter,
+                signatureChainId: this.signatureChainId,
+                nonceManager: this.nonceManager,
+                useSymbolConversion: this.useSymbolConversion,
+                symbolConversion: this.symbolConversion });
     }
 
 
+      async getAllAssets(): Promise<{ perp: string[]; spot: string[] }> {
+          return await this.symbolConversion!.getAllAssets();
+        }
 
 
     async cancelAllOrders(symbol?: string): Promise<CancelResponseSuccess> {
         try {
           const address = this.user;
-          const openOrders: Order[] = await this.openOrders({ user: address });
+          const openOrders: Order[] = await this.infoClient.openOrders({ user: address });
     
           let ordersToCancel: Order[];
     
@@ -379,7 +175,7 @@ export class CustomExchangeClient<
           };
           
           // Pass it to the cancel method
-          const response = await this.cancel(cancelParams);
+          const response = await this.exchangeClient.cancel(cancelParams);
           return response;
         } catch (error) {
           throw error;
@@ -390,7 +186,7 @@ export class CustomExchangeClient<
       async cancelAllSpotOrders(): Promise<CancelResponseSuccess> {
         try {
           const address = this.user;
-          const openOrders: Order[] = await this.openOrders({ user: address });
+          const openOrders: Order[] = await this.infoClient.openOrders({ user: address });
     
           // Get all spot assets to identify spot orders
           const { spot } = await this.getAllAssets();
@@ -420,7 +216,7 @@ export class CustomExchangeClient<
             }))
           };
     
-          const response = await this.cancel(cancelParams);
+          const response = await this.exchangeClient.cancel(cancelParams);
           return response;
         } catch (error) {
           throw error;
@@ -430,7 +226,7 @@ export class CustomExchangeClient<
       async cancelAllPerpOrders(): Promise<CancelResponseSuccess> {
         try {
           const address = this.user;
-          const openOrders: Order[] = await this.openOrders({ user: address });
+          const openOrders: Order[] = await this.infoClient.openOrders({ user: address });
     
           // Get all perp assets to identify perp orders
           const { perp } = await this.getAllAssets();
@@ -461,7 +257,7 @@ export class CustomExchangeClient<
             }))
           };
     
-          const response = await this.cancel(cancelParams);
+          const response = await this.exchangeClient.cancel(cancelParams);
           return response;
         } catch (error) {
           throw error;
@@ -479,7 +275,7 @@ export class CustomExchangeClient<
             px?: number
         ): Promise<number> {
             if (!px) {
-            const allMids = await this.allMids();
+            const allMids = await this.infoClient.allMids();
             px = Number(allMids[symbol]);
             }
 
@@ -504,7 +300,7 @@ export class CustomExchangeClient<
             cloid?: string
         ): Promise<OrderResponse> {
             const address = this.user;
-            const positions = await this.clearinghouseState({user: address});
+            const positions = await this.infoClient.clearinghouseState({user: address});
             for (const position of positions.assetPositions) {
             const item = position.position;
             if (symbol !== item.coin) {
@@ -523,10 +319,10 @@ export class CustomExchangeClient<
                 orders: [{
                     a: symbol,
                     b: isBuy,
-                    s: closeSize.toString(), // Convert number to string
                     p: slippagePrice.toString(), // Convert number to string
-                    t: { limit: { tif: 'Ioc' } },
+                    s: closeSize.toString(), // Convert number to string
                     r: true,
+                    t: { limit: { tif: 'Ioc' } },
                 }],
                 grouping: "na" // No grouping
             };
@@ -536,7 +332,7 @@ export class CustomExchangeClient<
                 orderRequest.orders[0].cloid = cloid;
             }
 
-            return this.order(orderRequest);
+            return this.exchangeClient.order(orderRequest);
             }
 
             throw new Error(`No position found for ${symbol}`);
@@ -545,7 +341,7 @@ export class CustomExchangeClient<
         async closeAllPositions(slippage: number = this.DEFAULT_SLIPPAGE): Promise<OrderResponse[]> {
             try {
             const address = this.user;
-            const positions = await this.clearinghouseState({user: address});
+            const positions = await this.infoClient.clearinghouseState({user: address});
             const closeOrders: Promise<OrderResponse>[] = [];
 
             console.log(positions.assetPositions);
@@ -570,167 +366,8 @@ export class CustomExchangeClient<
 
 
 
-    /**
-     * Place an order(s).
-     * @param args - The parameters for the request.
-     * @param signal - An optional abort signal.
-     * @returns Successful variant of {@link OrderResponse} without error statuses.
-     * @throws {ApiRequestError} When the API returns an error response.
-     *
-     * @see https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#place-an-order
-     * @example
-     * ```ts
-     * import * as hl from "@nktkas/hyperliquid";
-     *
-     * const privateKey = "0x..."; // or `viem`, `ethers`
-     * const transport = new hl.HttpTransport(); // or `WebSocketTransport`
-     * const exchClient = new hl.ExchangeClient({ wallet: privateKey, transport });
-     *
-     * const data = await exchClient.order({
-     *   orders: [{
-     *     a: 0, // Asset index
-     *     b: true, // Buy order
-     *     p: "30000", // Price
-     *     s: "0.1", // Size
-     *     r: false, // Not reduce-only
-     *     t: {
-     *       limit: {
-     *         tif: "Gtc", // Good-til-cancelled
-     *       },
-     *     },
-     *     c: "0x...", // Client Order ID (optional)
-     *   }],
-     *   grouping: "na", // No grouping
-     * });
-     * ```
-     */
-    async order(args: OrderParameters, signal?: AbortSignal): Promise<OrderResponseSuccess> {
-        // Destructure the parameters
-        const {
-            vaultAddress = this.defaultVaultAddress,
-            expiresAfter = await this._getDefaultExpiresAfter(),
-            ...actionArgs
-        } = args;
-
-       
-        
-        // Convert asset IDs from symbols to indices if symbol conversion is enabled
-        if (this.hasSymbolConversion && actionArgs.orders) {
-            actionArgs.orders = await Promise.all(actionArgs.orders.map(async (order) => {
-                if (typeof order.a === 'string') {
-                    // Convert the symbol to asset index
-                    const assetIndex = await this.getAssetIndex(order.a);
-                    return { ...order, a: assetIndex };
-                }
-                return order;
-            }));
-        }
-
-        // Construct an action
-        const nonce = await this.nonceManager();
-        const action: OrderRequest["action"] = {
-            type: "order",
-            ...actionArgs,
-        };
-
-        // Sign the action
-        const signature = await signL1Action({
-            wallet: this.wallet,
-            action: actionSorter[action.type](action),
-            nonce,
-            isTestnet: this.isTestnet,
-            vaultAddress,
-            expiresAfter,
-        });
-
-        // Send a request
-        return await this._request(
-            { action, signature, nonce, vaultAddress, expiresAfter } satisfies OrderRequest,
-            signal,
-        );
-    }
 
 
-
-    /** Send an API request and validate the response. */
-    protected async _request<
-        T extends
-            | SuccessResponse
-            | CancelResponseSuccess
-            | OrderResponseSuccess,
-    >(payload: BaseExchangeRequest, signal?: AbortSignal): Promise<T> {
-        const response = await this.transport.request<
-            | SuccessResponse
-            | ErrorResponse
-            | CancelResponse
-            | OrderResponse
-        >("exchange", payload, signal);
-        this._validateResponse(response);
-        return response as T;
-    }
-
-    /** Guesses the chain ID based on the wallet type or the isTestnet flag. */
-    protected async _guessSignatureChainId(): Promise<Hex> {
-        // Trying to get chain ID of the wallet
-        if (isAbstractViemWalletClient(this.wallet)) {
-            if ("getChainId" in this.wallet && typeof this.wallet.getChainId === "function") {
-                const chainId = await this.wallet.getChainId() as number;
-                return `0x${chainId.toString(16)}`;
-            }
-        } else if (isAbstractEthersSigner(this.wallet) || isAbstractEthersV5Signer(this.wallet)) {
-            if (
-                "provider" in this.wallet &&
-                typeof this.wallet.provider === "object" && this.wallet.provider !== null &&
-                "getNetwork" in this.wallet.provider &&
-                typeof this.wallet.provider.getNetwork === "function"
-            ) {
-                const network = await this.wallet.provider.getNetwork() as { chainId: number | bigint };
-                return `0x${network.chainId.toString(16)}`;
-            }
-        } else if (isAbstractWindowEthereum(this.wallet)) {
-            const [chainId] = await this.wallet.request({ method: "eth_chainId", params: [] }) as Hex[];
-            return chainId;
-        }
-        // Attempt to guess chain ID based on isTestnet
-        return this.isTestnet ? "0x66eee" : "0xa4b1";
-    }
-
-    /** Get the default expiration time for an action. */
-    protected async _getDefaultExpiresAfter(): Promise<number | undefined> {
-        return typeof this.defaultExpiresAfter === "number"
-            ? this.defaultExpiresAfter
-            : await this.defaultExpiresAfter?.();
-    }
-
-    /** Get the signature chain ID for the wallet. */
-    protected async _getSignatureChainId(): Promise<Hex> {
-        return typeof this.signatureChainId === "string" ? this.signatureChainId : await this.signatureChainId();
-    }
-
-    /** Get the Hyperliquid chain based on the isTestnet flag. */
-    protected _getHyperliquidChain(): "Mainnet" | "Testnet" {
-        return this.isTestnet ? "Testnet" : "Mainnet";
-    }
-
-    /** Validate a response from the API. */
-    protected _validateResponse(
-        response:
-            | SuccessResponse
-            | ErrorResponse
-            | CancelResponse
-            | OrderResponse,
-    ): asserts response is
-        | SuccessResponse
-        | CancelResponseSuccess
-        | OrderResponseSuccess {
-        if (response.status === "err") {
-            throw new ApiRequestError(response as ErrorResponse);
-        } else if (response.response.type === "order" || response.response.type === "cancel") {
-            if (response.response.data.statuses.some((status) => typeof status === "object" && "error" in status)) {
-                throw new ApiRequestError(response as OrderResponse | CancelResponse);
-            }
-        }
-    }
 
     async [Symbol.asyncDispose](): Promise<void> {
         await this.transport[Symbol.asyncDispose]?.();

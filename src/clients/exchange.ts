@@ -1180,6 +1180,7 @@ export class ExchangeClient<
                 return order;
             }));
         }
+        console.log("actionArgs", actionArgs.orders)
         
         return this._executeAction({
             action: {

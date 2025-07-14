@@ -110,7 +110,8 @@ import type {
     VaultDetailsRequest,
     VaultSummariesRequest,
 } from "../types/info/requests.ts";
-import type { VaultDetails, VaultEquity, VaultSummary } from "../types/info/vaults.ts";
+import type { VaultDetails, VaultEquity,VaultLeading, VaultSummary } from "../types/info/vaults.ts";
+import { Hex } from "../base.ts";
 
 /** Parameters for the {@linkcode InfoClient} constructor. */
 export interface InfoClientParameters<T extends IRequestTransport = IRequestTransport> {

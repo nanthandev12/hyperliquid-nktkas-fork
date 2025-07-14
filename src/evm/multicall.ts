@@ -89,13 +89,10 @@ export class MulticallClient {
   public async getTokenBalances(
     walletAddress: string,
     tokens: TokenInfo[],
-    options: MultiCallOptions = {}
   ): Promise<BalanceQueryResult> {
     try {
       // Set defaults
-      const methodName = options.methodName || 'balanceOf';
-      const methodParams = options.methodParams || [walletAddress];
-      const formatBalances = options.formatBalances !== undefined ? options.formatBalances : true;
+      const methodParams = walletAddress;
 
       // Get multicall contract
       const multicallContract = {
@@ -104,7 +101,7 @@ export class MulticallClient {
       };
 
       // Prepare calldata for token balances
-      const callData = this.prepareCalldata(tokens, methodName, methodParams, options.customAbi);
+      const callData = this.prepareCalldata(tokens, methodParams);
 
       // Execute multicall
       const result = await this.client.readContract({
@@ -147,7 +144,7 @@ export class MulticallClient {
 
           // Format balance if requested and decimals provided
           let formattedBalance;
-          if (formatBalances && token.decimals !== undefined) {
+          if (token.decimals !== undefined) {
             formattedBalance = formatUnits(balance, token.decimals);
           }
 
@@ -228,18 +225,16 @@ export class MulticallClient {
    */
   private prepareCalldata(
     tokens: TokenInfo[],
-    methodName: string,
-    methodParams: any[],
-    customAbi?: any[]
+    methodParams: string,
   ): { target: Address; callData: Hex }[] {
     // Use custom ABI if provided, otherwise use ERC20 ABI
-    const abi = customAbi || erc20Abi;
+    const abi = erc20Abi;
     
     // Encode the function call
     const encodedCalldata = encodeFunctionData({
       abi,
-      functionName: methodName,
-      args: methodParams
+      functionName: "balanceOf",
+      args: [methodParams as `0x${string}`] // Type assertion for viem's hex string requirement
     });
 
     // Create call data for each token

@@ -3,12 +3,8 @@ import { MulticallClient, TokenInfo } from '../evm/multicall';
 import type { IRequestTransport } from "../transports/base.ts";
 import type { SpotClearinghouseState} from "../types/info/accounts.ts";
 import type { SpotMeta } from "../types/info/assets.ts";
-import type { SpotClearinghouseStateParameters } from "../clients/info.ts";
+import { InfoClient } from "../clients/info.ts";
 
-import type {
-    SpotClearinghouseStateRequest,
-    SpotMetaRequest,
-} from "../types/info/requests.ts";
 
 export interface TransferrableAsset {
   coin: string;
@@ -42,8 +38,9 @@ export interface CustomInfoClientParameters<T extends IRequestTransport = IReque
 export class CustomInfoClient<
     T extends IRequestTransport = IRequestTransport,
 > implements CustomInfoClientParameters<T>, AsyncDisposable {
-    transport: T;
-    user: Hex;
+    private transport: T;
+    private user: Hex;
+    private infoClient: InfoClient<T>;
    
 
     /**
@@ -61,24 +58,13 @@ export class CustomInfoClient<
     constructor(args: CustomInfoClientParameters<T>) {
         this.transport = args.transport;
         this.user = args.user;
-    }
+        this.infoClient = new InfoClient(
+          { transport: this.transport});  
+        }
 
-  // Helper method to get spot meta data
-    private async spotMeta(signal?: AbortSignal): Promise<SpotMeta> {
-        const request: SpotMetaRequest = {
-            type: "spotMeta",
-        };
-        return await this.transport.request("info", request, signal)
-    }
 
-    private async spotClearinghouseState(args: SpotClearinghouseStateParameters, signal?: AbortSignal): Promise<SpotClearinghouseState> {
-      const request: SpotClearinghouseStateRequest = {
-          type: "spotClearinghouseState",
-          ...args,
-      };
-         console.log("request",request)
-         return await this.transport.request("info", request, signal)
-     }
+
+
 
      
 
@@ -91,8 +77,8 @@ export class CustomInfoClient<
   async getTransferrableAssets(): Promise<TransferrableAsset[]> {
     // Get both the clearinghouse state and meta data
     const [clearinghouseState, meta] = await Promise.all([
-      this.spotClearinghouseState({user: this.user}),
-      this.spotMeta(),
+      this.infoClient.spotClearinghouseState({user: this.user}),
+      this.infoClient.spotMeta(),
     ]);
 
     // Create a mapping of token index to whether it has an EVM contract
@@ -165,7 +151,7 @@ export class CustomInfoClient<
    */
   async getEvmTokens(): Promise<EvmToken[]> {
     // Get the spot metadata
-    const meta = await this.spotMeta();
+    const meta = await this.infoClient.spotMeta();
 
     // Filter tokens to only include those with EVM contracts or HYPE tokens
     const evmTokens = (meta.tokens as any[])
@@ -214,7 +200,7 @@ export class CustomInfoClient<
     // Get the EVM tokens first
     const evmTokens = await this.getEvmTokens();
 
-    const clearinghouseState = await this.spotClearinghouseState({user: this.user});
+    const clearinghouseState = await this.infoClient.spotClearinghouseState({user: this.user});
 
     const coreBalanceMap = new Map();
     if (clearinghouseState.balances && Array.isArray(clearinghouseState.balances)) {
@@ -237,6 +223,8 @@ export class CustomInfoClient<
         symbol: token.name,
         decimals: token.decimals,
       }));
+
+    console.log(tokenInfos);
 
     // Get ERC20 token balances using multicall
     const balanceResult = await client.getTokenBalances(this.user, tokenInfos);
@@ -293,8 +281,8 @@ export class CustomInfoClient<
   async getAllSpotBalances(): Promise<Omit<TransferrableAsset, 'systemAddress'>[]> {
     // Get both the clearinghouse state and meta data
     const [clearinghouseState, meta] = await Promise.all([
-      this.spotClearinghouseState({user: this.user}),
-      this.spotMeta(),
+      this.infoClient.spotClearinghouseState({user: this.user}),
+      this.infoClient.spotMeta(),
     ]);
 
     // Create a mapping of token index to tokenId
