@@ -365,15 +365,15 @@ export class ExchangeClient<
     T extends IRequestTransport = IRequestTransport,
     W extends AbstractWallet = AbstractWallet,
 > implements ExchangeClientParameters<T, W>, AsyncDisposable {
-    transport: T;
-    wallet: W;
-    isTestnet: boolean;
-    defaultVaultAddress?: Hex;
-    defaultExpiresAfter?: number | (() => MaybePromise<number>);
-    signatureChainId: Hex | (() => MaybePromise<Hex>);
-    nonceManager: () => MaybePromise<number>;
-    useSymbolConversion: boolean;
-    symbolConversion?: SymbolConversion<T>;
+    private transport: T;
+    private wallet: W;
+    private isTestnet: boolean;
+    private defaultVaultAddress?: Hex;
+    private defaultExpiresAfter?: number | (() => MaybePromise<number>);
+    private signatureChainId: Hex | (() => MaybePromise<Hex>);
+    private nonceManager: () => MaybePromise<number>;
+    private useSymbolConversion: boolean;
+    private symbolConversion?: SymbolConversion<T>;
     private hasSymbolConversion: boolean;
 
     

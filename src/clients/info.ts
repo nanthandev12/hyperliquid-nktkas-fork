@@ -259,9 +259,9 @@ export type VaultDetailsParameters = Omit<VaultDetailsRequest, "type">;
 export class InfoClient<
     T extends IRequestTransport = IRequestTransport,
 > implements InfoClientParameters<T>, AsyncDisposable {
-    transport: T;
-    useSymbolConversion: boolean;
-    symbolConversion?: SymbolConversion<T>;
+    private transport: T;
+    private useSymbolConversion: boolean;
+    private symbolConversion?: SymbolConversion<T>;
     private hasSymbolConversion: boolean;
 
     /**

@@ -104,7 +104,6 @@ export class CustomExchangeClient<
     private useSymbolConversion: boolean;
     private symbolConversion?: SymbolConversion<T>;
     private user : Hex;
-    private hasSymbolConversion: boolean;
     private infoClient: InfoClient<T>;
     private exchangeClient: ExchangeClient<T, W>;
 
@@ -121,7 +120,6 @@ export class CustomExchangeClient<
         this.symbolConversion = args.symbolConversion;
         this.user = args.user;
         // Pre-compute whether we have symbol conversion capability
-        this.hasSymbolConversion = this.useSymbolConversion && !!this.symbolConversion;
         this.infoClient = new InfoClient(
             { transport: this.transport,
                 useSymbolConversion: this.useSymbolConversion,
@@ -359,14 +357,6 @@ export class CustomExchangeClient<
             throw error;
             }
         }
-
-
-
-
-
-
-
-
 
 
     async [Symbol.asyncDispose](): Promise<void> {

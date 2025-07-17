@@ -107,25 +107,7 @@ export class CustomInfoClient<
         return tokenEvmMapping.get(balance.token);
       })
       .map(balance => {
-        // Calculate system address
-        // HYPE is a special case with a fixed system address
-        let systemAddress: string;
-        if (balance.coin === 'HYPE') {
-          systemAddress = '0x2222222222222222222222222222222222222222';
-        } else {
-          // For all tokens (including token index 0):
-          // 1. Convert token index to hex
-          // 2. Start with 0x20
-          // 3. Fill the middle with zeros
-          // 4. End with the hex value
-          const hexIndex = balance.token.toString(16);
-
-          // Calculate how many zeros we need to maintain 40 hex digits total
-          const zeroCount = 40 - 2 - hexIndex.length; // 40 total - 2 for '20' prefix - length of hex
-
-          // Construct the address: 0x + 20 + zeros + hexIndex
-          systemAddress = `0x20${'0'.repeat(zeroCount)}${hexIndex}`;
-        }
+       const systemAddress = this.getSystemAddress(balance.token, balance.coin);
 
         // Get the tokenId for this asset
         const tokenId = tokenIdMapping.get(balance.token) || '';
@@ -157,25 +139,7 @@ export class CustomInfoClient<
     const evmTokens = (meta.tokens as any[])
       .filter(token => token.evmContract || token.name === 'HYPE')
       .map(token => {
-        // Calculate system address
-        // HYPE is a special case with a fixed system address
-        let systemAddress: string;
-        if (token.name === 'HYPE') {
-          systemAddress = '0x2222222222222222222222222222222222222222';
-        } else {
-          // For all tokens (including token index 0):
-          // 1. Convert token index to hex
-          // 2. Start with 0x20
-          // 3. Fill the middle with zeros
-          // 4. End with the hex value
-          const hexIndex = token.index.toString(16);
-
-          // Calculate how many zeros we need to maintain 40 hex digits total
-          const zeroCount = 40 - 2 - hexIndex.length; // 40 total - 2 for '20' prefix - length of hex
-
-          // Construct the address: 0x + 20 + zeros + hexIndex
-          systemAddress = `0x20${'0'.repeat(zeroCount)}${hexIndex}`;
-        }
+        const systemAddress = this.getSystemAddress(token.index, token.name);
 
         return {
           name: token.name,
@@ -315,7 +279,31 @@ export class CustomInfoClient<
 
     return allBalances;
   }
+    /**
+     * Generates a system address for a token index
+     * @param index The token index
+     * @param coinName Optional coin name, used to handle HYPE special case
+     * @returns The system address for the token
+     */
+    getSystemAddress(index: number, coinName?: string): string {
+      // HYPE is a special case with a fixed system address
+      if (coinName === 'HYPE') {
+        return '0x2222222222222222222222222222222222222222';
+      }
 
+      // For all other tokens (including token index 0):
+      // 1. Convert token index to hex
+      // 2. Start with 0x20
+      // 3. Fill the middle with zeros
+      // 4. End with the hex value
+      const hexIndex = index.toString(16);
+
+      // Calculate how many zeros we need to maintain 40 hex digits total
+      const zeroCount = 40 - 2 - hexIndex.length; // 40 total - 2 for '20' prefix - length of hex
+
+      // Construct the address: 0x + 20 + zeros + hexIndex
+      return `0x20${'0'.repeat(zeroCount)}${hexIndex}`;
+    }
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.transport[Symbol.asyncDispose]?.();
