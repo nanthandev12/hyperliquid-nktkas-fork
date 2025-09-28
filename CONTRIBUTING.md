@@ -8,7 +8,7 @@ Welcome, and thank you for taking time in contributing to SDK! You can contribut
 
 ## Development Setup
 
-You will need [Deno](https://deno.land/) 2.0+.
+You will need [Deno](https://deno.com) 2.0+.
 
 1. Fork this repository to your own GitHub account.
 2. Clone the repository to your local device.
@@ -26,7 +26,8 @@ You can run most tests with the following command:
 deno test -A
 ```
 
-However, for complete testing, you will need a private key from a testnet account with funds:
+However, for complete testing, you will need a private key from a testnet account with funds (~100 usdc-perps, ~3
+usdc-spot, ~0.0000001 hype-spot):
 
 ```bash
 deno test -A -- YOUR_PRIVATE_KEY
