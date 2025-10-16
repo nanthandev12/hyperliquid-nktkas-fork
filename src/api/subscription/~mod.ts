@@ -23,8 +23,8 @@
  * @module
  */
 
-export { parser, SchemaError } from "../_common.ts";
-export type { SubscriptionRequestConfig } from "./_common.ts";
+export { parser, SchemaError } from "../_base.ts";
+export type { SubscriptionRequestConfig } from "./_base.ts";
 
 export * from "./activeAssetCtx.ts";
 export * from "./activeAssetData.ts";
@@ -44,6 +44,7 @@ export * from "./trades.ts";
 export * from "./userEvents.ts";
 export * from "./userFills.ts";
 export * from "./userFundings.ts";
+export * from "./userHistoricalOrders.ts";
 export * from "./userNonFundingLedgerUpdates.ts";
 export * from "./userTwapHistory.ts";
 export * from "./userTwapSliceFills.ts";

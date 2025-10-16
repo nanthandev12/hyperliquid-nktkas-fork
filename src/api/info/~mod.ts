@@ -21,10 +21,11 @@
  * @module
  */
 
-export { parser, SchemaError } from "../_common.ts";
-export type { InfoRequestConfig } from "./_common.ts";
+export { parser, SchemaError } from "../_base.ts";
+export type { InfoRequestConfig } from "./_base.ts";
 
 export * from "./activeAssetData.ts";
+export * from "./alignedQuoteTokenInfo.ts";
 export * from "./allMids.ts";
 export * from "./blockDetails.ts";
 export * from "./candleSnapshot.ts";

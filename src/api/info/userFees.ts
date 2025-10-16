@@ -1,6 +1,6 @@
 import * as v from "valibot";
-import { Address, Decimal, type DeepImmutable, parser, UnsignedDecimal } from "../_common.ts";
-import type { InfoRequestConfig } from "./_common.ts";
+import { Address, Decimal, type DeepImmutable, parser, UnsignedDecimal } from "../_base.ts";
+import type { InfoRequestConfig } from "./_base.ts";
 
 // -------------------- Schemas --------------------
 
@@ -212,20 +212,20 @@ export const UserFeesResponse = /* @__PURE__ */ (() => {
       ),
       /** Trial details. */
       trial: v.pipe(
-        v.union([v.unknown(), v.null()]),
+        v.nullable(v.unknown()),
         v.description("Trial details."),
       ),
-      /** Fee trial reward amount. */
-      feeTrialReward: v.pipe(
+      /** Fee trial escrow amount. */
+      feeTrialEscrow: v.pipe(
         UnsignedDecimal,
-        v.description("Fee trial reward amount."),
+        v.description("Fee trial escrow amount."),
       ),
       /** Timestamp when next trial becomes available. */
       nextTrialAvailableTimestamp: v.pipe(
-        v.union([v.unknown(), v.null()]),
+        v.nullable(v.unknown()),
         v.description("Timestamp when next trial becomes available."),
       ),
-      stakingLink: v.union([v.unknown(), v.null()]),
+      stakingLink: v.nullable(v.unknown()),
       /** Active staking discount details. */
       activeStakingDiscount: v.pipe(
         v.object({

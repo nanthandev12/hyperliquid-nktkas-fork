@@ -393,6 +393,7 @@ class InfoClient {
   });
 
   // Market
+  alignedQuoteTokenInfo(params: AlignedQuoteTokenInfoParameters): Promise<AlignedQuoteTokenInfoResponse>;
   allMids(params?: AllMidsParameters): Promise<AllMidsResponse>;
   candleSnapshot(params: CandleSnapshotParameters): Promise<CandleSnapshotResponse>;
   fundingHistory(params: FundingHistoryParameters): Promise<FundingHistoryResponse>;
@@ -562,6 +563,7 @@ class SubscriptionClient {
 
   // Market
   activeAssetCtx(params: WsActiveAssetCtxParameters, listener: (data: WsActiveAssetCtxEvent) => void);
+  activeSpotAssetCtx(params: WsActiveSpotAssetCtxParameters, listener: (data: WsActiveSpotAssetCtxEvent) => void);
   allMids(params?: WsAllMidsParameters, listener: (data: WsAllMidsEvent) => void);
   assetCtxs(params?: WsAssetCtxsParameters, listener: (data: WsAssetCtxsEvent) => void);
   bbo(params: WsBboParameters, listener: (data: WsBboEvent) => void);
@@ -575,6 +577,7 @@ class SubscriptionClient {
   notification(params: WsNotificationParameters, listener: (data: WsNotificationEvent) => void);
   userEvents(params: WsUserEventsParameters, listener: (data: WsUserEventsEvent) => void);
   userFundings(params: WsUserFundingsParameters, listener: (data: WsUserFundingsEvent) => void);
+  userHistoricalOrders(params: WsUserHistoricalOrdersParameters, listener: (data: WsUserHistoricalOrdersEvent) => void);
   userNonFundingLedgerUpdates(
     params: WsUserNonFundingLedgerUpdatesParameters,
     listener: (data: WsUserNonFundingLedgerUpdatesEvent) => void,

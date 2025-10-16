@@ -1,6 +1,6 @@
 {
   "name": "@nktkas/hyperliquid",
-  "version": "0.25.1",
+  "version": "0.25.2",
   "exports": {
     ".": "./src/mod.ts",
     "./signing": "./src/signing/mod.ts",
@@ -31,8 +31,5 @@
     ]
   },
   "license": "MIT",
-  "lock": false,
-  "tasks": {
-    "build:npm": "deno run --allow-env --allow-read --allow-write --allow-run build/npm.ts"
-  }
+  "lock": false
 }
